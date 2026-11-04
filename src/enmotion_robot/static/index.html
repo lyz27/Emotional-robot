@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Enmotion Robot Debug</title>
+  <style>
+    :root { color-scheme: dark; --bg:#081018; --panel:#101c28; --line:#243648; --text:#e8f1f8; --muted:#8ca1b3; --ok:#48d597; --bad:#ff6b72; --accent:#72a7ff; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"PingFang SC",sans-serif; color:var(--text); background:radial-gradient(circle at 20% 0,#15304a 0,transparent 35%),var(--bg); }
+    main { width:min(980px,calc(100% - 32px)); margin:0 auto; padding:40px 0 64px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:24px; }
+    h1 { margin:0; font-size:clamp(26px,5vw,42px); letter-spacing:-.03em; }
+    .subtitle { color:var(--muted); margin-top:5px; }
+    .badge { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:999px; padding:8px 13px; background:#0b1620cc; white-space:nowrap; }
+    .dot { width:9px; height:9px; border-radius:50%; background:var(--bad); box-shadow:0 0 14px currentColor; }
+    .connected .dot { background:var(--ok); }
+    .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+    .card { border:1px solid var(--line); border-radius:16px; padding:17px; background:linear-gradient(160deg,#142434dd,#0d1823dd); box-shadow:0 15px 40px #0004; }
+    .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
+    .value { margin-top:8px; font-size:21px; font-weight:700; overflow-wrap:anywhere; }
+    .wide { grid-column:span 2; }
+    section { margin-top:20px; }
+    h2 { font-size:18px; margin:0 0 12px; }
+    .actions { display:flex; flex-wrap:wrap; gap:10px; }
+    button { border:1px solid var(--line); border-radius:11px; padding:11px 16px; color:var(--text); background:#172738; cursor:pointer; font-weight:650; }
+    button:hover:not(:disabled) { border-color:var(--accent); transform:translateY(-1px); }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    button.danger { color:#ffdfe1; border-color:#7d3439; background:#481f25; }
+    pre { min-height:100px; max-height:260px; overflow:auto; margin:0; white-space:pre-wrap; color:#b9c9d6; font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace; }
+    @media (max-width:720px) { .grid { grid-template-columns:repeat(2,1fr); } header { align-items:flex-start; flex-direction:column; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div><h1>Enmotion Robot</h1><div class="subtitle">Jetson ↔ ESP32 基础调试面板</div></div>
+    <div id="connection" class="badge"><span class="dot"></span><span id="connectionText">正在连接…</span></div>
+  </header>
+
+  <div class="grid">
+    <div class="card"><div class="label">设备状态</div><div id="state" class="value">unknown</div></div>
+    <div class="card"><div class="label">串口</div><div id="port" class="value">—</div></div>
+    <div class="card"><div class="label">固件</div><div id="firmware" class="value">—</div></div>
+    <div class="card"><div class="label">空闲堆</div><div id="heap" class="value">—</div></div>
+    <div class="card wide"><div class="label">最近通信</div><div id="lastSeen" class="value">—</div></div>
+    <div class="card wide"><div class="label">重连次数</div><div id="reconnects" class="value">0</div></div>
+  </div>
+
+  <section class="card">
+    <h2>安全控制</h2>
+    <div class="actions">
+      <button data-command="get_status">刷新状态</button>
+      <button data-command="ping">Ping</button>
+      <button data-command="disarm">解除</button>
+      <button data-command="clear_faults">清除故障</button>
+      <button class="danger" data-command="estop">急停</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>事件</h2>
+    <pre id="events">等待服务状态…</pre>
+  </section>
+</main>
+<script>
+  const ids = ["state","port","firmware","heap","lastSeen","reconnects"];
+  const el = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
+  const events = document.getElementById("events");
+  const connection = document.getElementById("connection");
+  const connectionText = document.getElementById("connectionText");
+  let lastSignature = "";
+
+  function log(message) {
+    const stamp = new Date().toLocaleTimeString();
+    events.textContent = `[${stamp}] ${message}\n` + events.textContent;
+  }
+
+  function render(data) {
+    connection.classList.toggle("connected", data.connected);
+    connectionText.textContent = data.connected ? "ESP32 已连接" : `ESP32 ${data.service || "离线"}`;
+    el.state.textContent = data.state || "unknown";
+    el.port.textContent = data.port || "—";
+    el.firmware.textContent = data.firmware || "—";
+    el.heap.textContent = data.free_heap ? `${Math.round(data.free_heap / 1024)} KB` : "—";
+    el.lastSeen.textContent = data.last_seen ? new Date(data.last_seen).toLocaleString() : "—";
+    el.reconnects.textContent = data.reconnect_count ?? 0;
+    document.querySelectorAll("button").forEach(button => button.disabled = !data.connected);
+    const signature = JSON.stringify([data.connected,data.state,data.port,data.last_error,data.reconnect_count]);
+    if (signature !== lastSignature) {
+      log(data.connected ? `连接 ${data.port}，状态 ${data.state}` : `连接中断：${data.last_error || "等待设备"}`);
+      lastSignature = signature;
+    }
+  }
+
+  async function refresh() {
+    try {
+      const response = await fetch("/api/status", {cache:"no-store"});
+      render(await response.json());
+    } catch (error) {
+      connection.classList.remove("connected");
+      connectionText.textContent = "调试服务离线";
+      log(`状态读取失败：${error}`);
+    }
+  }
+
+  document.querySelectorAll("button[data-command]").forEach(button => {
+    button.addEventListener("click", async () => {
+      const command = button.dataset.command;
+      if (command === "estop" && !confirm("确认触发急停？")) return;
+      try {
+        const response = await fetch(`/api/command/${command}`, {method:"POST"});
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.detail || response.statusText);
+        log(`${command}: ${JSON.stringify(body)}`);
+        await refresh();
+      } catch (error) { log(`${command} 失败：${error}`); }
+    });
+  });
+
+  refresh();
+  setInterval(refresh, 1000);
+</script>
+</body>
+</html>
+

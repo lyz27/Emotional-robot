@@ -29,6 +29,30 @@ python3 -m venv .venv
 .venv/bin/enmotion-device --port auto --duration 5
 ```
 
+## Locked development environment
+
+Install [uv](https://docs.astral.sh/uv/) and reproduce the exact dependency set:
+
+```bash
+uv sync --frozen --extra dev
+```
+
+The committed `uv.lock` is the source of truth for Python dependency versions.
+
+## Runtime and browser dashboard
+
+Run the auto-discovery, heartbeat, reconnect service and debug dashboard:
+
+```bash
+.venv/bin/enmotion-runtime --host 0.0.0.0 --port 8080
+```
+
+Open `http://<jetson-ip>:8080`. The page exposes status, ping, disarm,
+emergency-stop, and fault-clear controls. It intentionally does not expose an
+arm command.
+
+The production service definition is in `deploy/enmotion-runtime.service`.
+
 ## Firmware
 
 ```bash
