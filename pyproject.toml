@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "enmotion-robot"
+version = "0.1.0"
+description = "Software stack for the Enmotion emotional companion robot"
+requires-python = ">=3.10"
+dependencies = [
+  "pyserial>=3.5,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+]
+
+[project.scripts]
+enmotion-device = "enmotion_robot.device_bridge:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
