@@ -18,6 +18,14 @@ def test_status_endpoint() -> None:
     assert response.json()["state"] == "safe"
 
 
+def test_dashboard_is_not_cached_between_deployments() -> None:
+    client = TestClient(create_app(StubSupervisor(), manage_supervisor=False))
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store, no-cache, must-revalidate"
+    assert "Enmotion Studio" in response.text
+
+
 def test_safe_command_and_arm_rejection() -> None:
     client = TestClient(create_app(StubSupervisor(), manage_supervisor=False))
     assert client.post("/api/command/ping").status_code == 200
