@@ -3,124 +3,126 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Enmotion Robot Debug</title>
+  <title>Enmotion Robot Studio</title>
   <style>
-    :root { color-scheme: dark; --bg:#081018; --panel:#101c28; --line:#243648; --text:#e8f1f8; --muted:#8ca1b3; --ok:#48d597; --bad:#ff6b72; --accent:#72a7ff; }
+    :root { color-scheme:dark; --bg:#071018; --panel:#101d28; --line:#294052; --text:#edf6fb; --muted:#91a8b8; --ok:#4bd6a0; --bad:#ff737a; --accent:#73b7ff; --warm:#ffd166; --gx:0px; --gy:0px; }
     * { box-sizing:border-box; }
-    body { margin:0; min-height:100vh; font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"PingFang SC",sans-serif; color:var(--text); background:radial-gradient(circle at 20% 0,#15304a 0,transparent 35%),var(--bg); }
-    main { width:min(980px,calc(100% - 32px)); margin:0 auto; padding:40px 0 64px; }
-    header { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:24px; }
-    h1 { margin:0; font-size:clamp(26px,5vw,42px); letter-spacing:-.03em; }
-    .subtitle { color:var(--muted); margin-top:5px; }
-    .badge { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:999px; padding:8px 13px; background:#0b1620cc; white-space:nowrap; }
-    .dot { width:9px; height:9px; border-radius:50%; background:var(--bad); box-shadow:0 0 14px currentColor; }
-    .connected .dot { background:var(--ok); }
-    .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
-    .card { border:1px solid var(--line); border-radius:16px; padding:17px; background:linear-gradient(160deg,#142434dd,#0d1823dd); box-shadow:0 15px 40px #0004; }
-    .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
-    .value { margin-top:8px; font-size:21px; font-weight:700; overflow-wrap:anywhere; }
-    .wide { grid-column:span 2; }
-    section { margin-top:20px; }
-    h2 { font-size:18px; margin:0 0 12px; }
-    .actions { display:flex; flex-wrap:wrap; gap:10px; }
-    button { border:1px solid var(--line); border-radius:11px; padding:11px 16px; color:var(--text); background:#172738; cursor:pointer; font-weight:650; }
-    button:hover:not(:disabled) { border-color:var(--accent); transform:translateY(-1px); }
-    button:disabled { opacity:.45; cursor:not-allowed; }
-    button.danger { color:#ffdfe1; border-color:#7d3439; background:#481f25; }
-    pre { min-height:100px; max-height:260px; overflow:auto; margin:0; white-space:pre-wrap; color:#b9c9d6; font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace; }
-    @media (max-width:720px) { .grid { grid-template-columns:repeat(2,1fr); } header { align-items:flex-start; flex-direction:column; } }
+    body { margin:0; min-height:100vh; color:var(--text); font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"PingFang SC",sans-serif; background:radial-gradient(circle at 10% 0,#173956 0,transparent 34%),var(--bg); }
+    main { width:min(1240px,calc(100% - 28px)); margin:auto; padding:26px 0 56px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:18px; }
+    h1 { margin:0; font-size:clamp(25px,4vw,38px); letter-spacing:-.04em; }
+    h2 { margin:0 0 14px; font-size:17px; } h3 { margin:18px 0 10px; color:#c8d9e5; font-size:13px; letter-spacing:.04em; }
+    .subtitle,.hint { color:var(--muted); } .badges,.actions,.emotion-list { display:flex; flex-wrap:wrap; gap:8px; }
+    .badge { display:inline-flex; align-items:center; gap:7px; padding:7px 11px; border:1px solid var(--line); border-radius:999px; background:#0b1721d9; white-space:nowrap; }
+    .dot { width:8px; height:8px; border-radius:50%; background:var(--bad); box-shadow:0 0 12px currentColor; } .connected .dot { background:var(--ok); }
+    .layout { display:grid; grid-template-columns:minmax(430px,1.3fr) minmax(330px,.8fr); gap:16px; align-items:start; } .stack { display:grid; gap:16px; }
+    .card { border:1px solid var(--line); border-radius:18px; padding:17px; background:linear-gradient(155deg,#142736ed,#0c1822ed); box-shadow:0 18px 48px #0005; }
+    .stage { min-height:400px; display:grid; place-items:center; perspective:800px; overflow:hidden; position:relative; border-radius:15px; background:radial-gradient(circle at 50% 45%,#1b3b50 0,#0c1a24 60%,#081118 100%); }
+    .stage::after { content:""; position:absolute; inset:auto 12% 7%; height:25px; background:#0007; filter:blur(13px); border-radius:50%; }
+    .head { width:min(390px,85%); aspect-ratio:1.35; display:grid; place-items:center; position:relative; z-index:1; border:1px solid #466278; border-radius:42% 42% 38% 38%; background:linear-gradient(145deg,#233d50,#0e1e2a); box-shadow:inset 0 0 45px #5fbfff12,0 25px 45px #0008; transform-style:preserve-3d; transition:transform .22s ease; }
+    .face { width:78%; display:flex; align-items:center; justify-content:space-between; gap:32px; } .eye-wrap { width:46%; position:relative; padding-top:18px; }
+    .brow { width:72%; height:9px; margin:0 auto 17px; border-radius:99px; background:#aee1ff; opacity:.55; transition:transform .28s,opacity .28s; }
+    .eye { height:104px; position:relative; overflow:hidden; border:4px solid #b9e8ff; border-radius:48%; background:#dff6ff; box-shadow:0 0 30px #5bbfff55,inset 0 -13px 25px #6db6d555; transition:height .13s,border-radius .25s,transform .25s; }
+    .pupil { width:42px; height:48px; position:absolute; left:50%; top:50%; border-radius:50%; background:radial-gradient(circle at 36% 30%,#fff 0 7%,#63d3ff 8% 22%,#07141d 24%); box-shadow:0 0 16px #1ea8df; transform:translate(calc(-50% + var(--gx)),calc(-50% + var(--gy))); transition:transform .15s ease; }
+    .face.blink .eye { height:8px!important; border-width:3px; border-radius:99px!important; transform:translateY(46px); }
+    .face.happy .eye { height:84px; border-radius:50% 50% 35% 35%; transform:rotate(2deg); } .face.happy .eye-wrap:last-child .eye { transform:rotate(-2deg); } .face.happy .brow { transform:translateY(5px); opacity:.35; }
+    .face.curious .eye-wrap:first-child .eye { transform:scale(1.08); } .face.curious .eye-wrap:last-child .eye { transform:scale(.9); } .face.curious .eye-wrap:first-child .brow { transform:rotate(-9deg) translateY(-5px); } .face.curious .eye-wrap:last-child .brow { transform:rotate(9deg) translateY(5px); }
+    .face.sleepy .eye { height:35px; border-radius:20% 20% 50% 50%; } .face.sleepy .brow { transform:translateY(12px); opacity:.25; }
+    .face.worried .eye { height:92px; } .face.worried .eye-wrap:first-child .brow { transform:rotate(12deg); } .face.worried .eye-wrap:last-child .brow { transform:rotate(-12deg); }
+    .face.thinking .eye-wrap:first-child .eye { height:70px; transform:rotate(5deg); } .face.thinking .eye-wrap:last-child .brow { transform:rotate(-15deg) translateY(-8px); }
+    .emotion-label { position:absolute; left:18px; bottom:14px; padding:6px 10px; border-radius:9px; color:#bfe9ff; background:#061019aa; text-transform:uppercase; letter-spacing:.08em; }
+    button { border:1px solid var(--line); border-radius:10px; padding:9px 13px; color:var(--text); background:#182c3d; cursor:pointer; font-weight:650; transition:.16s; }
+    button:hover:not(:disabled),button.active { border-color:var(--accent); background:#203d55; transform:translateY(-1px); } button:disabled { opacity:.42; cursor:not-allowed; }
+    button.danger { border-color:#7b3940; background:#472128; color:#ffe4e6; } button.small { padding:6px 9px; font-size:12px; }
+    .controls { display:grid; grid-template-columns:1fr 1fr; gap:15px; } .control { display:grid; grid-template-columns:70px 1fr 46px; gap:9px; align-items:center; } .control output { color:#bde5ff; font-variant-numeric:tabular-nums; text-align:right; }
+    input[type=range] { width:100%; accent-color:var(--accent); } .sensor-grid,.status-grid { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
+    .sensor { padding:11px; border:1px solid var(--line); border-radius:12px; background:#0b1721aa; } .sensor label { display:flex; justify-content:space-between; gap:8px; color:var(--muted); margin-bottom:7px; } .sensor strong { color:var(--text); }
+    .switch { display:flex; align-items:center; gap:8px; } .switch input { width:18px; height:18px; accent-color:var(--accent); }
+    select { width:100%; padding:8px; border:1px solid var(--line); border-radius:9px; color:var(--text); background:#132535; }
+    .status-item { padding:10px 11px; border-radius:11px; background:#0a1721; border:1px solid #203748; } .status-item span { display:block; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.07em; } .status-item strong { display:block; margin-top:4px; overflow-wrap:anywhere; }
+    .face-map { height:125px; position:relative; border:1px solid var(--line); border-radius:12px; background:linear-gradient(#1c344555 1px,transparent 1px),linear-gradient(90deg,#1c344555 1px,transparent 1px),#0a1721; background-size:25% 25%; cursor:crosshair; }
+    .face-marker { width:18px; height:18px; position:absolute; left:50%; top:50%; border:2px solid var(--warm); border-radius:50%; box-shadow:0 0 12px var(--warm); transform:translate(-50%,-50%); display:none; } .face-map.detected .face-marker { display:block; }
+    .event-list { height:245px; overflow:auto; display:grid; align-content:start; gap:7px; } .event { display:grid; grid-template-columns:62px 62px 1fr; gap:8px; padding:7px 8px; border-bottom:1px solid #203442; color:#c9d8e1; font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace; } .event time,.event-kind { color:var(--muted); }
+    .footer-actions { display:flex; justify-content:space-between; gap:10px; margin-top:14px; }
+    @media (max-width:900px) { .layout { grid-template-columns:1fr; } }
+    @media (max-width:570px) { main{width:min(100% - 18px,1240px)} header{align-items:flex-start;flex-direction:column}.stage{min-height:320px}.face{gap:15px}.eye{height:80px}.controls,.sensor-grid{grid-template-columns:1fr}.control{grid-template-columns:58px 1fr 42px}.badges{width:100%} }
   </style>
 </head>
 <body>
 <main>
   <header>
-    <div><h1>Enmotion Robot</h1><div class="subtitle">Jetson ↔ ESP32 基础调试面板</div></div>
-    <div id="connection" class="badge"><span class="dot"></span><span id="connectionText">正在连接…</span></div>
+    <div><h1>Enmotion Studio</h1><div class="subtitle">第二周 · 表情与机器人行为模拟器</div></div>
+    <div class="badges"><div class="badge connected"><span class="dot"></span><span>模拟器运行中</span></div><div id="deviceBadge" class="badge"><span class="dot"></span><span id="deviceText">ESP32 检测中</span></div></div>
   </header>
-
-  <div class="grid">
-    <div class="card"><div class="label">设备状态</div><div id="state" class="value">unknown</div></div>
-    <div class="card"><div class="label">串口</div><div id="port" class="value">—</div></div>
-    <div class="card"><div class="label">固件</div><div id="firmware" class="value">—</div></div>
-    <div class="card"><div class="label">空闲堆</div><div id="heap" class="value">—</div></div>
-    <div class="card wide"><div class="label">最近通信</div><div id="lastSeen" class="value">—</div></div>
-    <div class="card wide"><div class="label">重连次数</div><div id="reconnects" class="value">0</div></div>
-  </div>
-
-  <section class="card">
-    <h2>安全控制</h2>
-    <div class="actions">
-      <button data-command="get_status">刷新状态</button>
-      <button data-command="ping">Ping</button>
-      <button data-command="disarm">解除</button>
-      <button data-command="clear_faults">清除故障</button>
-      <button class="danger" data-command="estop">急停</button>
+  <div class="layout">
+    <div class="stack">
+      <section class="card"><div id="stage" class="stage"><div id="head" class="head"><div id="face" class="face calm"><div class="eye-wrap"><div class="brow"></div><div class="eye"><div class="pupil"></div></div></div><div class="eye-wrap"><div class="brow"></div><div class="eye"><div class="pupil"></div></div></div></div></div><div id="emotionLabel" class="emotion-label">CALM · 平静</div></div></section>
+      <section class="card">
+        <h2>表情与动作</h2>
+        <div id="emotionList" class="emotion-list"><button data-emotion="calm">平静</button><button data-emotion="happy">开心</button><button data-emotion="curious">好奇</button><button data-emotion="sleepy">困倦</button><button data-emotion="worried">担忧</button><button data-emotion="thinking">思考</button><button id="blinkButton">眨眼</button></div>
+        <h3>注视方向</h3><div class="controls"><div class="control"><label for="gazeX">左右</label><input id="gazeX" type="range" min="-1" max="1" step="0.05" value="0"><output id="gazeXOut">0.00</output></div><div class="control"><label for="gazeY">上下</label><input id="gazeY" type="range" min="-1" max="1" step="0.05" value="0"><output id="gazeYOut">0.00</output></div></div>
+        <h3>虚拟颈部</h3><div class="controls"><div class="control"><label for="neckYaw">Yaw</label><input id="neckYaw" type="range" min="-60" max="60" step="1" value="0"><output id="neckYawOut">0°</output></div><div class="control"><label for="neckPitch">Pitch</label><input id="neckPitch" type="range" min="-30" max="30" step="1" value="0"><output id="neckPitchOut">0°</output></div></div>
+      </section>
+      <section class="card">
+        <h2>传感器模拟</h2>
+        <div class="sensor-grid">
+          <div class="sensor"><label><span>头部触摸</span><span class="switch"><input id="touch" type="checkbox"><strong id="touchText">未触摸</strong></span></label><div class="hint">模拟电容触摸事件</div></div>
+          <div class="sensor"><label for="motor"><span>电机状态</span><strong id="motorText">disabled</strong></label><select id="motor"><option value="disabled">disabled</option><option value="idle">idle</option><option value="moving">moving</option><option value="fault">fault</option></select></div>
+          <div class="sensor"><label for="distance"><span>距离</span><strong id="distanceText">100 cm</strong></label><input id="distance" type="range" min="0" max="400" step="1" value="100"></div>
+          <div class="sensor"><label><span>检测到人脸</span><span class="switch"><input id="faceDetected" type="checkbox"><strong id="faceText">否</strong></span></label><div class="hint">开启后点击下方区域设置位置</div></div>
+        </div>
+        <h3>模拟人脸位置</h3><div id="faceMap" class="face-map"><div id="faceMarker" class="face-marker"></div></div>
+      </section>
     </div>
-  </section>
-
-  <section class="card">
-    <h2>事件</h2>
-    <pre id="events">等待服务状态…</pre>
-  </section>
+    <div class="stack">
+      <section class="card">
+        <h2>系统状态</h2><div class="status-grid"><div class="status-item"><span>当前情绪</span><strong id="statusEmotion">calm</strong></div><div class="status-item"><span>电机</span><strong id="statusMotor">disabled</strong></div><div class="status-item"><span>颈部</span><strong id="statusNeck">0° / 0°</strong></div><div class="status-item"><span>眨眼次数</span><strong id="statusBlink">0</strong></div><div class="status-item"><span>ESP32 状态</span><strong id="statusDevice">unknown</strong></div><div class="status-item"><span>串口</span><strong id="statusPort">—</strong></div><div class="status-item"><span>固件</span><strong id="statusFirmware">—</strong></div><div class="status-item"><span>重连次数</span><strong id="statusReconnect">0</strong></div></div>
+        <h3>ESP32 安全控制</h3><div class="actions"><button data-device-command="get_status">刷新</button><button data-device-command="ping">Ping</button><button data-device-command="disarm">解除</button><button data-device-command="clear_faults">清除故障</button><button class="danger" data-device-command="estop">急停</button></div>
+      </section>
+      <section class="card"><h2>系统事件</h2><div id="events" class="event-list"><div class="hint">正在读取事件…</div></div><div class="footer-actions"><span class="hint">保留最近 50 条事件</span><button id="reset" class="small">重置模拟器</button></div></section>
+    </div>
+  </div>
 </main>
 <script>
-  const ids = ["state","port","firmware","heap","lastSeen","reconnects"];
-  const el = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
-  const events = document.getElementById("events");
-  const connection = document.getElementById("connection");
-  const connectionText = document.getElementById("connectionText");
-  let lastSignature = "";
+  const $ = id => document.getElementById(id);
+  const emotionNames = {calm:"平静",happy:"开心",curious:"好奇",sleepy:"困倦",worried:"担忧",thinking:"思考"};
+  const face = $("face"), head = $("head"), events = $("events");
+  let state = null, lastSequence = -1, facePosition = {x:0,y:0}, refreshing = false;
 
-  function log(message) {
-    const stamp = new Date().toLocaleTimeString();
-    events.textContent = `[${stamp}] ${message}\n` + events.textContent;
+  async function command(name, payload = {}, target = "simulator") {
+    const response = await fetch(`/api/control/${name}`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({target,...payload})});
+    const body = await response.json(); if (!response.ok) throw new Error(body.detail || response.statusText); return body.result;
   }
-
-  function render(data) {
-    connection.classList.toggle("connected", data.connected);
-    connectionText.textContent = data.connected ? "ESP32 已连接" : `ESP32 ${data.service || "离线"}`;
-    el.state.textContent = data.state || "unknown";
-    el.port.textContent = data.port || "—";
-    el.firmware.textContent = data.firmware || "—";
-    el.heap.textContent = data.free_heap ? `${Math.round(data.free_heap / 1024)} KB` : "—";
-    el.lastSeen.textContent = data.last_seen ? new Date(data.last_seen).toLocaleString() : "—";
-    el.reconnects.textContent = data.reconnect_count ?? 0;
-    document.querySelectorAll("button").forEach(button => button.disabled = !data.connected);
-    const signature = JSON.stringify([data.connected,data.state,data.port,data.last_error,data.reconnect_count]);
-    if (signature !== lastSignature) {
-      log(data.connected ? `连接 ${data.port}，状态 ${data.state}` : `连接中断：${data.last_error || "等待设备"}`);
-      lastSignature = signature;
-    }
+  function blinkVisual() { face.classList.add("blink"); setTimeout(() => face.classList.remove("blink"), 150); }
+  function setRange(id,value,digits,suffix="") { $(id).value=value; $(`${id}Out`).textContent=`${Number(value).toFixed(digits)}${suffix}`; }
+  function renderSimulation(sim) {
+    state=sim; face.className=`face ${sim.emotion}`; document.documentElement.style.setProperty("--gx",`${sim.gaze.x*28}px`); document.documentElement.style.setProperty("--gy",`${sim.gaze.y*22}px`); head.style.transform=`rotateY(${sim.neck.yaw}deg) rotateX(${-sim.neck.pitch}deg)`;
+    $("emotionLabel").textContent=`${sim.emotion.toUpperCase()} · ${emotionNames[sim.emotion]}`; document.querySelectorAll("[data-emotion]").forEach(b=>b.classList.toggle("active",b.dataset.emotion===sim.emotion));
+    setRange("gazeX",sim.gaze.x,2); setRange("gazeY",sim.gaze.y,2); setRange("neckYaw",sim.neck.yaw,0,"°"); setRange("neckPitch",sim.neck.pitch,0,"°");
+    $("touch").checked=sim.sensors.touch; $("touchText").textContent=sim.sensors.touch?"已触摸":"未触摸"; $("distance").value=sim.sensors.distance_cm; $("distanceText").textContent=`${sim.sensors.distance_cm} cm`; $("faceDetected").checked=sim.sensors.face_detected; $("faceText").textContent=sim.sensors.face_detected?"是":"否"; $("motor").value=sim.motor; $("motorText").textContent=sim.motor;
+    facePosition={x:sim.sensors.face_x,y:sim.sensors.face_y}; $("faceMap").classList.toggle("detected",sim.sensors.face_detected); $("faceMarker").style.left=`${(sim.sensors.face_x+1)*50}%`; $("faceMarker").style.top=`${(sim.sensors.face_y+1)*50}%`;
+    $("statusEmotion").textContent=`${emotionNames[sim.emotion]} (${sim.emotion})`; $("statusMotor").textContent=sim.motor; $("statusNeck").textContent=`${sim.neck.yaw}° / ${sim.neck.pitch}°`; $("statusBlink").textContent=sim.blink_count;
+    if(sim.sequence!==lastSequence){renderEvents(sim.events);lastSequence=sim.sequence;}
   }
+  function renderDevice(d) { $("deviceBadge").classList.toggle("connected",d.connected); $("deviceText").textContent=d.connected?`ESP32 · ${d.state}`:`ESP32 · ${d.service||"离线"}`; $("statusDevice").textContent=d.state||"unknown"; $("statusPort").textContent=d.port||"—"; $("statusFirmware").textContent=d.firmware||"—"; $("statusReconnect").textContent=d.reconnect_count??0; document.querySelectorAll("[data-device-command]").forEach(b=>b.disabled=!d.connected); }
+  function escapeHtml(value){const div=document.createElement("div");div.textContent=String(value);return div.innerHTML;}
+  function renderEvents(items){events.innerHTML=items.length?items.map(item=>`<div class="event"><time>${new Date(item.at).toLocaleTimeString()}</time><span class="event-kind">${escapeHtml(item.kind)}</span><span>${escapeHtml(item.message)}</span></div>`).join(""):'<div class="hint">暂无事件</div>';}
+  function debounce(fn,wait=110){let timer;return(...args)=>{clearTimeout(timer);timer=setTimeout(()=>fn(...args),wait);};}
+  async function refresh(){if(refreshing)return;refreshing=true;try{const response=await fetch("/api/robot",{cache:"no-store"});if(!response.ok)throw new Error(response.statusText);const data=await response.json();renderSimulation(data.simulation);renderDevice(data.device);}catch(error){$("deviceText").textContent="调试服务离线";}finally{refreshing=false;}}
 
-  async function refresh() {
-    try {
-      const response = await fetch("/api/status", {cache:"no-store"});
-      render(await response.json());
-    } catch (error) {
-      connection.classList.remove("connected");
-      connectionText.textContent = "调试服务离线";
-      log(`状态读取失败：${error}`);
-    }
-  }
-
-  document.querySelectorAll("button[data-command]").forEach(button => {
-    button.addEventListener("click", async () => {
-      const command = button.dataset.command;
-      if (command === "estop" && !confirm("确认触发急停？")) return;
-      try {
-        const response = await fetch(`/api/command/${command}`, {method:"POST"});
-        const body = await response.json();
-        if (!response.ok) throw new Error(body.detail || response.statusText);
-        log(`${command}: ${JSON.stringify(body)}`);
-        await refresh();
-      } catch (error) { log(`${command} 失败：${error}`); }
-    });
-  });
-
-  refresh();
-  setInterval(refresh, 1000);
+  document.querySelectorAll("[data-emotion]").forEach(button=>button.addEventListener("click",async()=>{await command("set_emotion",{emotion:button.dataset.emotion});await refresh();}));
+  $("blinkButton").addEventListener("click",async()=>{blinkVisual();await command("blink");await refresh();});
+  const updateGaze=debounce(async()=>{await command("set_gaze",{x:Number($("gazeX").value),y:Number($("gazeY").value)});await refresh();});
+  ["gazeX","gazeY"].forEach(id=>$(id).addEventListener("input",()=>{$(`${id}Out`).textContent=Number($(id).value).toFixed(2);document.documentElement.style.setProperty(id==="gazeX"?"--gx":"--gy",`${Number($(id).value)*(id==="gazeX"?28:22)}px`);updateGaze();}));
+  const updateNeck=debounce(async()=>{await command("set_neck",{yaw:Number($("neckYaw").value),pitch:Number($("neckPitch").value)});await refresh();});
+  ["neckYaw","neckPitch"].forEach(id=>$(id).addEventListener("input",()=>{$(`${id}Out`).textContent=`${$(id).value}°`;head.style.transform=`rotateY(${$("neckYaw").value}deg) rotateX(${-$("neckPitch").value}deg)`;updateNeck();}));
+  async function updateSensors(extra={}){await command("set_sensors",{touch:$("touch").checked,distance_cm:Number($("distance").value),face_detected:$("faceDetected").checked,face_x:facePosition.x,face_y:facePosition.y,motor:$("motor").value,...extra});await refresh();}
+  $("touch").addEventListener("change",updateSensors); $("faceDetected").addEventListener("change",updateSensors); $("motor").addEventListener("change",updateSensors); const debounceDistance=debounce(updateSensors); $("distance").addEventListener("input",()=>{$("distanceText").textContent=`${$("distance").value} cm`;debounceDistance();});
+  $("faceMap").addEventListener("click",event=>{const r=event.currentTarget.getBoundingClientRect();facePosition={x:Number((((event.clientX-r.left)/r.width)*2-1).toFixed(2)),y:Number((((event.clientY-r.top)/r.height)*2-1).toFixed(2))};$("faceDetected").checked=true;updateSensors({face_detected:true});});
+  document.querySelectorAll("[data-device-command]").forEach(button=>button.addEventListener("click",async()=>{const name=button.dataset.deviceCommand;if(name==="estop"&&!confirm("确认触发 ESP32 急停？"))return;try{await command(name,{},"esp32");await refresh();}catch(error){alert(`${name} 失败：${error.message}`);}}));
+  $("reset").addEventListener("click",async()=>{await command("reset");await refresh();});
+  function scheduleBlink(){const delay=(state?.emotion==="sleepy"?2200:3500)+Math.random()*2800;setTimeout(async()=>{if(!document.hidden){blinkVisual();try{await command("blink");}catch(_){}}scheduleBlink();},delay);}
+  refresh(); setInterval(refresh,1000); scheduleBlink();
 </script>
 </body>
 </html>
-

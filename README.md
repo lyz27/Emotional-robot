@@ -47,9 +47,23 @@ Run the auto-discovery, heartbeat, reconnect service and debug dashboard:
 .venv/bin/enmotion-runtime --host 0.0.0.0 --port 8080
 ```
 
-Open `http://<jetson-ip>:8080`. The page exposes status, ping, disarm,
-emergency-stop, and fault-clear controls. It intentionally does not expose an
+Open `http://<jetson-ip>:8080`. The Week 2 studio includes animated eyes,
+automatic blinking, six emotion states, gaze and virtual neck controls, touch,
+distance, face-position and motor simulation, a combined event/status panel,
+and the existing ESP32 safety controls. It intentionally does not expose an
 arm command.
+
+Both simulated behavior and physical ESP32 controls use the same endpoint:
+
+```text
+POST /api/control/{command}
+{"target":"simulator", ...command fields}
+{"target":"esp32"}
+```
+
+The complete combined state is available from `GET /api/robot`. Simulator
+commands are `set_emotion`, `set_gaze`, `set_neck`, `set_sensors`, `blink`, and
+`reset`. Physical commands remain restricted by the safety allowlist.
 
 The production service definition is in `deploy/enmotion-runtime.service`.
 
