@@ -1,0 +1,37 @@
+[Unit]
+Description=Enmotion local Qwen3 dialogue model
+After=network.target
+Before=enmotion-runtime.service
+
+[Service]
+Type=simple
+User=lyz
+Group=lyz
+WorkingDirectory=/home/lyz/llama.cpp
+Environment=GGML_CUDA_ENABLE_UNIFIED_MEMORY=1
+ExecStart=/home/lyz/llama.cpp/build/bin/llama-server \
+  --model /home/lyz/enmotion_robot/models/llm/Qwen3-4B-Q4_K_M.gguf \
+  --alias qwen3-4b-q4 \
+  --host 127.0.0.1 \
+  --port 8081 \
+  --ctx-size 2048 \
+  --parallel 1 \
+  --n-gpu-layers 99 \
+  --load-mode none \
+  --threads 4 \
+  --threads-batch 6 \
+  --batch-size 512 \
+  --ubatch-size 128 \
+  --cache-type-k q8_0 \
+  --cache-type-v q8_0 \
+  --flash-attn on \
+  --reasoning off \
+  --no-webui
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=180
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

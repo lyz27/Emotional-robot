@@ -41,6 +41,7 @@ class Personality:
 
 PERSONALITY = Personality()
 MEMORY_KINDS = frozenset({"profile", "preference", "event"})
+COMPANION_EMOTIONS = frozenset({"calm", "happy", "curious", "sleepy", "worried", "thinking"})
 
 
 class MemoryStore:
@@ -280,6 +281,17 @@ class EmotionStateMachine:
                 self._updated_at = utc_now()
             return self._snapshot_unlocked()
 
+    def set_from_model(self, name: str, intensity: float) -> EmotionSnapshot:
+        if name not in COMPANION_EMOTIONS:
+            return self.snapshot()
+        with self._lock:
+            self._name = name
+            self._intensity = max(0.0, min(1.0, float(intensity)))
+            self._reason = "dialogue-model"
+            self._updated = self.clock()
+            self._updated_at = utc_now()
+            return self._snapshot_unlocked()
+
     def _snapshot_unlocked(self) -> EmotionSnapshot:
         elapsed = max(0.0, self.clock() - self._updated)
         intensity = max(0.0, self._intensity * (1.0 - elapsed / self.decay_seconds))
@@ -394,6 +406,29 @@ class OpenAICompatibleDialogueModel:
         self.model = model
         self.api_key = api_key
         self.timeout = timeout
+        self.last_emotion_signal: tuple[str, float] | None = None
+
+    @staticmethod
+    def _parse_content(content: str) -> tuple[str, tuple[str, float] | None]:
+        cleaned = content.strip()
+        if "</think>" in cleaned:
+            cleaned = cleaned.rsplit("</think>", 1)[-1].strip()
+        if cleaned.startswith("```") and cleaned.endswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.IGNORECASE)
+        try:
+            data = json.loads(cleaned)
+        except json.JSONDecodeError:
+            return cleaned, None
+        if not isinstance(data, dict):
+            return cleaned, None
+        reply = str(data.get("reply", "")).strip()
+        emotion = str(data.get("emotion", "")).strip().lower()
+        try:
+            intensity = float(data.get("intensity", 0.5))
+        except (TypeError, ValueError):
+            intensity = 0.5
+        signal = (emotion, max(0.0, min(1.0, intensity))) if emotion in COMPANION_EMOTIONS else None
+        return reply or cleaned, signal
 
     def generate(
         self,
@@ -409,10 +444,14 @@ class OpenAICompatibleDialogueModel:
             if not item.get("sensitive")
         ]
         system = (
+            "/no_think\n"
             f"你是{PERSONALITY.name}，{PERSONALITY.role}。语气要求：{PERSONALITY.tone}。"
-            f"当前情绪：{emotion.name}。边界：{'；'.join(PERSONALITY.boundaries)}。"
+            "不要套用固定句式，不要复述用户原话；结合最近对话自然回应，必要时只追问一个问题。"
+            f"当前情绪参考：{emotion.name}。边界：{'；'.join(PERSONALITY.boundaries)}。"
             f"用户允许使用的记忆：{json.dumps(safe_memories, ensure_ascii=False)}。"
-            f"会话摘要：{context.get('summary') or '无'}。回答控制在120个中文字符以内。"
+            f"会话摘要：{context.get('summary') or '无'}。"
+            "只返回一个JSON对象：reply为120个中文字符以内的自然回复；emotion只能是"
+            "calm、happy、curious、sleepy、worried、thinking之一；intensity为0到1。"
         )
         messages = [{"role": "system", "content": system}]
         messages.extend(
@@ -421,7 +460,16 @@ class OpenAICompatibleDialogueModel:
         )
         messages.append({"role": "user", "content": text})
         body = json.dumps(
-            {"model": self.model, "messages": messages, "temperature": 0.65, "max_tokens": 220}
+            {
+                "model": self.model,
+                "messages": messages,
+                "temperature": 0.78,
+                "top_p": 0.9,
+                "presence_penalty": 1.2,
+                "max_tokens": 256,
+                "response_format": {"type": "json_object"},
+                "chat_template_kwargs": {"enable_thinking": False},
+            }
         ).encode()
         headers = {"Content-Type": "application/json"}
         if self.api_key:
@@ -430,9 +478,10 @@ class OpenAICompatibleDialogueModel:
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 payload = json.load(response)
-            reply = str(payload["choices"][0]["message"]["content"]).strip()
+            content = str(payload["choices"][0]["message"]["content"]).strip()
         except (OSError, KeyError, IndexError, TypeError, json.JSONDecodeError, urllib.error.URLError) as exc:
             raise CompanionError("dialogue_provider_failed", "外部对话模型不可用") from exc
+        reply, self.last_emotion_signal = self._parse_content(content)
         if not reply:
             raise CompanionError("dialogue_empty", "外部对话模型没有返回内容")
         return reply[:500]
@@ -443,6 +492,7 @@ class HybridDialogueModel:
         self.remote = remote
         self.local = local or LocalDialogueModel()
         self.last_error: str | None = None
+        self.emotion_signal: tuple[str, float] | None = None
 
     @property
     def mode(self) -> str:
@@ -453,9 +503,13 @@ class HybridDialogueModel:
             try:
                 reply = self.remote.generate(text, **kwargs)
                 self.last_error = None
+                self.emotion_signal = getattr(self.remote, "last_emotion_signal", None)
                 return reply
             except CompanionError as exc:
                 self.last_error = str(exc)
+                self.emotion_signal = None
+        else:
+            self.emotion_signal = None
         return self.local.generate(text, **kwargs)
 
 
@@ -576,6 +630,8 @@ class CompanionCore:
             )
         else:
             reply = self.provider.generate(text, context=context, memories=memories, emotion=emotion)
+            if self.provider.emotion_signal:
+                emotion = self.emotion.set_from_model(*self.provider.emotion_signal)
         if allow_store:
             self.store.add_exchange(session_id, text, reply)
         return {

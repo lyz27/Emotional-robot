@@ -6,6 +6,7 @@ from enmotion_robot.companion import (
     EmotionStateMachine,
     HybridDialogueModel,
     MemoryStore,
+    OpenAICompatibleDialogueModel,
 )
 
 
@@ -110,4 +111,16 @@ def test_hybrid_provider_falls_back_and_private_text_never_goes_remote(tmp_path:
 
     companion.chat("不要记录，我的密码是秘密")
     assert remote.calls == 1
+
+
+def test_remote_json_reply_and_emotion_are_strictly_parsed() -> None:
+    reply, signal = OpenAICompatibleDialogueModel._parse_content(
+        '```json\n{"reply":"听起来你很期待这件事。","emotion":"happy","intensity":0.73}\n```'
+    )
+    assert reply == "听起来你很期待这件事。"
+    assert signal == ("happy", 0.73)
+    _, invalid = OpenAICompatibleDialogueModel._parse_content(
+        '{"reply":"测试","emotion":"angry","intensity":4}'
+    )
+    assert invalid is None
 

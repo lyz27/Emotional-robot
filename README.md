@@ -118,6 +118,19 @@ Companion endpoints:
 The generated database defaults to `runtime/companion.db` and is excluded from
 version control. The dashboard can view, edit, delete, or clear all saved memories.
 
+The production Jetson setup uses `deploy/enmotion-llm.service` to run the official
+Qwen3-4B Q4_K_M GGUF with CUDA-enabled llama.cpp on localhost port 8081. The model
+returns a natural reply plus a constrained emotion/intensity suggestion; the robot
+runtime validates the suggestion before it can affect the existing safe expression
+and motion mapping. `deploy/enmotion-runtime.service` connects to this local
+OpenAI-compatible endpoint and keeps the offline rules as its failure fallback.
+
+Jetson deployment uses a 2048-token context and `--load-mode none` to avoid the
+initial allocation failure seen with mmap and a 4096-token context. All model
+layers are offloaded to CUDA. The tested llama.cpp source revision is `e30ad80`.
+The official GGUF SHA-256 is
+`7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5`.
+
 ## Firmware
 
 ```bash
