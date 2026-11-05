@@ -8,11 +8,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 
 from .supervisor import SAFE_COMMANDS, DeviceSupervisor
 from .simulator import SIMULATOR_COMMANDS, RobotSimulator
+from .speech import SpeechCoordinator, SpeechError, WavBytesSource
 
 
 LOG = logging.getLogger("enmotion.web")
@@ -22,11 +24,13 @@ STATIC_DIR = Path(__file__).with_name("static")
 def create_app(
     supervisor: DeviceSupervisor | None = None,
     simulator: RobotSimulator | None = None,
+    speech: SpeechCoordinator | None = None,
     *,
     manage_supervisor: bool = True,
 ) -> FastAPI:
     runtime = supervisor or DeviceSupervisor()
     robot = simulator or RobotSimulator()
+    voice = speech or SpeechCoordinator()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -39,6 +43,7 @@ def create_app(
     app = FastAPI(title="Enmotion Robot Debug", version="0.2.0", lifespan=lifespan)
     app.state.supervisor = runtime
     app.state.simulator = robot
+    app.state.speech = voice
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
@@ -61,7 +66,52 @@ def create_app(
 
     @app.get("/api/robot")
     def robot_status() -> dict:
-        return {"device": runtime.snapshot(), "simulation": robot.snapshot()}
+        return {"device": runtime.snapshot(), "simulation": robot.snapshot(), "speech": voice.status()}
+
+    @app.get("/api/speech/status")
+    def speech_status() -> dict:
+        return voice.status()
+
+    @app.post("/api/speech/process")
+    async def process_speech(
+        audio: UploadFile = File(...),
+        reply: str = Form(default=""),
+    ) -> dict:
+        if not (audio.filename or "").lower().endswith(".wav"):
+            raise HTTPException(status_code=415, detail="请上传 .wav 格式的音频文件")
+        data = await audio.read()
+        if len(data) > 20 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="音频文件不能超过 20MB")
+        try:
+            return await run_in_threadpool(
+                voice.process,
+                WavBytesSource(data, audio.filename or "upload.wav"),
+                reply_override=reply,
+            )
+        except SpeechError as exc:
+            status_code = 504 if exc.code == "timeout" else 409 if exc.code == "interrupted" else 422
+            raise HTTPException(status_code=status_code, detail={"code": exc.code, "message": str(exc)}) from exc
+
+    @app.post("/api/speech/tts")
+    def synthesize_speech(payload: dict = Body(default_factory=dict)) -> dict:
+        try:
+            return voice.synthesize_text(str(payload.get("text", "")))
+        except SpeechError as exc:
+            raise HTTPException(status_code=422, detail={"code": exc.code, "message": str(exc)}) from exc
+
+    @app.post("/api/speech/interrupt")
+    def interrupt_speech() -> dict:
+        return voice.interrupt()
+
+    @app.get("/audio/{filename}", include_in_schema=False)
+    def generated_audio(filename: str) -> FileResponse:
+        safe_name = Path(filename).name
+        if safe_name != filename or not safe_name.endswith(".wav"):
+            raise HTTPException(status_code=404, detail="audio not found")
+        path = voice.output_dir / safe_name
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="audio not found")
+        return FileResponse(path, media_type="audio/wav", filename=safe_name)
 
     @app.post("/api/control/{command}")
     def control(command: str, payload: dict = Body(default_factory=dict)) -> dict:

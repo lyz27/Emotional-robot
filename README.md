@@ -67,6 +67,29 @@ commands are `set_emotion`, `set_gaze`, `set_neck`, `set_sensors`, `blink`, and
 
 The production service definition is in `deploy/enmotion-runtime.service`.
 
+## Offline speech pipeline (Week 3)
+
+Install the ARM64-compatible offline speech runtime and download the Chinese
+SenseVoice ASR, Silero VAD, and VITS TTS models:
+
+```bash
+./scripts/setup_speech.sh
+```
+
+Restart `enmotion-runtime.service`, then use the "第三周 · 离线语音链路"
+panel to upload a 16-bit PCM WAV file. The file and future microphone source use
+the same audio-source interface. Processing is entirely offline and returns the
+transcript, a local fallback reply, synthesized reply audio, VAD mode, and
+per-stage latency. Playback can be interrupted from the browser.
+
+Speech endpoints:
+
+- `GET /api/speech/status`
+- `POST /api/speech/process` (multipart WAV upload)
+- `POST /api/speech/tts`
+- `POST /api/speech/interrupt`
+- `GET /audio/{generated-file}.wav`
+
 ## Firmware
 
 ```bash

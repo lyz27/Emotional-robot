@@ -39,6 +39,16 @@
     .sensor { padding:11px; border:1px solid var(--line); border-radius:12px; background:#0b1721aa; } .sensor label { display:flex; justify-content:space-between; gap:8px; color:var(--muted); margin-bottom:7px; } .sensor strong { color:var(--text); }
     .switch { display:flex; align-items:center; gap:8px; } .switch input { width:18px; height:18px; accent-color:var(--accent); }
     select { width:100%; padding:8px; border:1px solid var(--line); border-radius:9px; color:var(--text); background:#132535; }
+    input[type=file],textarea { width:100%; border:1px solid var(--line); border-radius:10px; padding:10px; color:var(--text); background:#0a1721; font:inherit; }
+    textarea { min-height:66px; resize:vertical; }
+    .speech-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:10px; }
+    .speech-state { padding:9px 10px; margin-bottom:12px; border:1px solid var(--line); border-radius:10px; color:var(--muted); background:#0a1721; }
+    .speech-state.ready { color:var(--ok); border-color:#28664e; }
+    .speech-result { display:none; margin-top:13px; padding:11px; border-radius:12px; background:#09141d; border:1px solid #203748; }
+    .speech-result.visible { display:block; }
+    .speech-result p { margin:5px 0 10px; }
+    .speech-result audio { width:100%; height:36px; margin-top:4px; }
+    .metrics { color:var(--muted); font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
     .status-item { padding:10px 11px; border-radius:11px; background:#0a1721; border:1px solid #203748; } .status-item span { display:block; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.07em; } .status-item strong { display:block; margin-top:4px; overflow-wrap:anywhere; }
     .face-map { height:125px; position:relative; border:1px solid var(--line); border-radius:12px; background:linear-gradient(#1c344555 1px,transparent 1px),linear-gradient(90deg,#1c344555 1px,transparent 1px),#0a1721; background-size:25% 25%; cursor:crosshair; }
     .face-marker { width:18px; height:18px; position:absolute; left:50%; top:50%; border:2px solid var(--warm); border-radius:50%; box-shadow:0 0 12px var(--warm); transform:translate(-50%,-50%); display:none; } .face-map.detected .face-marker { display:block; }
@@ -76,6 +86,24 @@
     </div>
     <div class="stack">
       <section class="card">
+        <h2>第三周 · 离线语音链路</h2>
+        <div id="speechState" class="speech-state">正在检查离线模型…</div>
+        <label for="speechFile">上传中文 PCM WAV 录音</label>
+        <input id="speechFile" type="file" accept="audio/wav,.wav">
+        <div class="hint">支持单/双声道、16位 PCM、最长60秒；无需麦克风。</div>
+        <h3>可选：覆盖本地测试回复</h3>
+        <textarea id="replyOverride" placeholder="留空时使用第三周本地回复规则"></textarea>
+        <div class="speech-row"><button id="processSpeech">识别并生成回复</button><button id="stopSpeech" class="danger">停止播放 / 打断</button></div>
+        <div id="speechResult" class="speech-result">
+          <span class="label">识别文字</span><p id="transcript">—</p>
+          <span class="label">机器人回复</span><p id="speechReply">—</p>
+          <audio id="replyAudio" controls></audio><div id="speechMetrics" class="metrics"></div>
+        </div>
+        <h3>单独测试中文语音合成</h3>
+        <textarea id="ttsText" placeholder="例如：你好呀，我是 Enmotion。"></textarea>
+        <div class="speech-row"><button id="ttsButton">生成语音</button></div>
+      </section>
+      <section class="card">
         <h2>系统状态</h2><div class="status-grid"><div class="status-item"><span>当前情绪</span><strong id="statusEmotion">calm</strong></div><div class="status-item"><span>电机</span><strong id="statusMotor">disabled</strong></div><div class="status-item"><span>颈部</span><strong id="statusNeck">0° / 0°</strong></div><div class="status-item"><span>眨眼次数</span><strong id="statusBlink">0</strong></div><div class="status-item"><span>ESP32 状态</span><strong id="statusDevice">unknown</strong></div><div class="status-item"><span>串口</span><strong id="statusPort">—</strong></div><div class="status-item"><span>固件</span><strong id="statusFirmware">—</strong></div><div class="status-item"><span>重连次数</span><strong id="statusReconnect">0</strong></div></div>
         <h3>ESP32 安全控制</h3><div class="actions"><button data-device-command="get_status">刷新</button><button data-device-command="ping">Ping</button><button data-device-command="disarm">解除</button><button data-device-command="clear_faults">清除故障</button><button class="danger" data-device-command="estop">急停</button></div>
       </section>
@@ -87,7 +115,7 @@
   const $ = id => document.getElementById(id);
   const emotionNames = {calm:"平静",happy:"开心",curious:"好奇",sleepy:"困倦",worried:"担忧",thinking:"思考"};
   const face = $("face"), head = $("head"), events = $("events");
-  let state = null, lastSequence = -1, facePosition = {x:0,y:0}, refreshing = false;
+  let state = null, speechStatus = null, lastSequence = -1, facePosition = {x:0,y:0}, refreshing = false;
 
   async function command(name, payload = {}, target = "simulator") {
     const response = await fetch(`/api/control/${name}`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({target,...payload})});
@@ -105,10 +133,17 @@
     if(sim.sequence!==lastSequence){renderEvents(sim.events);lastSequence=sim.sequence;}
   }
   function renderDevice(d) { $("deviceBadge").classList.toggle("connected",d.connected); $("deviceText").textContent=d.connected?`ESP32 · ${d.state}`:`ESP32 · ${d.service||"离线"}`; $("statusDevice").textContent=d.state||"unknown"; $("statusPort").textContent=d.port||"—"; $("statusFirmware").textContent=d.firmware||"—"; $("statusReconnect").textContent=d.reconnect_count??0; document.querySelectorAll("[data-device-command]").forEach(b=>b.disabled=!d.connected); }
+  function renderSpeech(s) { speechStatus=s; const names={asr:"识别",vad:"VAD",tts:"合成"}; const missing=Object.entries(s.models||{}).filter(([,ready])=>!ready).map(([name])=>names[name]); $("speechState").classList.toggle("ready",s.ready); $("speechState").textContent=s.ready?"离线中文识别、VAD 和语音合成已就绪":`模型尚未就绪：${missing.join("、")||"正在加载"}`; $("processSpeech").disabled=!s.ready||s.processing; $("ttsButton").disabled=!s.ready||s.processing; }
   function escapeHtml(value){const div=document.createElement("div");div.textContent=String(value);return div.innerHTML;}
   function renderEvents(items){events.innerHTML=items.length?items.map(item=>`<div class="event"><time>${new Date(item.at).toLocaleTimeString()}</time><span class="event-kind">${escapeHtml(item.kind)}</span><span>${escapeHtml(item.message)}</span></div>`).join(""):'<div class="hint">暂无事件</div>';}
   function debounce(fn,wait=110){let timer;return(...args)=>{clearTimeout(timer);timer=setTimeout(()=>fn(...args),wait);};}
-  async function refresh(){if(refreshing)return;refreshing=true;try{const response=await fetch("/api/robot",{cache:"no-store"});if(!response.ok)throw new Error(response.statusText);const data=await response.json();renderSimulation(data.simulation);renderDevice(data.device);}catch(error){$("deviceText").textContent="调试服务离线";}finally{refreshing=false;}}
+  async function refresh(){if(refreshing)return;refreshing=true;try{const response=await fetch("/api/robot",{cache:"no-store"});if(!response.ok)throw new Error(response.statusText);const data=await response.json();renderSimulation(data.simulation);renderDevice(data.device);renderSpeech(data.speech);}catch(error){$("deviceText").textContent="调试服务离线";}finally{refreshing=false;}}
+
+  function speechError(body,statusText){const detail=body?.detail;return typeof detail==="object"?detail.message||JSON.stringify(detail):detail||statusText;}
+  function showSpeechResult(data){$("transcript").textContent=data.transcript||"（仅语音合成）";$("speechReply").textContent=data.reply||data.text;$("replyAudio").src=`${data.audio_url}?t=${Date.now()}`;$("speechResult").classList.add("visible");const t=data.timings||{tts_ms:data.tts_ms};$("speechMetrics").textContent=`离线处理 · 输入 ${data.input_seconds??"—"}s · 语音 ${data.speech_seconds??"—"}s · 输出 ${data.output_seconds}s · ${Object.entries(t).map(([k,v])=>`${k}=${v}ms`).join(" · ")}`;$("replyAudio").play().catch(()=>{});}
+  $("processSpeech").addEventListener("click",async()=>{const file=$("speechFile").files[0];if(!file){alert("请先选择 WAV 录音文件");return;}$("processSpeech").disabled=true;$("speechState").textContent="正在执行 VAD、中文识别和语音合成…";const data=new FormData();data.append("audio",file);data.append("reply",$("replyOverride").value);try{const response=await fetch("/api/speech/process",{method:"POST",body:data});const body=await response.json();if(!response.ok)throw new Error(speechError(body,response.statusText));showSpeechResult(body);}catch(error){alert(`语音处理失败：${error.message}`);}finally{await refresh();}});
+  $("ttsButton").addEventListener("click",async()=>{const text=$("ttsText").value.trim();if(!text){alert("请输入需要合成的文字");return;}$("ttsButton").disabled=true;try{const response=await fetch("/api/speech/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text})});const body=await response.json();if(!response.ok)throw new Error(speechError(body,response.statusText));showSpeechResult(body);}catch(error){alert(`语音合成失败：${error.message}`);}finally{await refresh();}});
+  $("stopSpeech").addEventListener("click",async()=>{const player=$("replyAudio");player.pause();player.currentTime=0;await fetch("/api/speech/interrupt",{method:"POST"});});
 
   document.querySelectorAll("[data-emotion]").forEach(button=>button.addEventListener("click",async()=>{await command("set_emotion",{emotion:button.dataset.emotion});await refresh();}));
   $("blinkButton").addEventListener("click",async()=>{blinkVisual();await command("blink");await refresh();});

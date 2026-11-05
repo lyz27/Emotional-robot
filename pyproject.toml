@@ -9,11 +9,18 @@ description = "Software stack for the Enmotion emotional companion robot"
 requires-python = ">=3.10"
 dependencies = [
   "fastapi>=0.115,<1",
+  "python-multipart>=0.0.20,<1",
   "pyserial>=3.5,<4",
   "uvicorn>=0.30,<1",
 ]
 
 [project.optional-dependencies]
+speech = [
+  "numpy>=1.24,<3",
+  "sherpa-onnx>=1.12,<3",
+  "sherpa-onnx-bin>=1.12,<3",
+]
+
 dev = [
   "httpx>=0.27,<1",
   "pytest>=8,<9",
