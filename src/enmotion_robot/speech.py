@@ -10,7 +10,7 @@ import wave
 from array import array
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 
 class SpeechError(RuntimeError):
@@ -343,7 +343,13 @@ class SpeechCoordinator:
         if time.monotonic() - started > self.timeout:
             raise SpeechTimeout()
 
-    def process(self, source: AudioSource, *, reply_override: str | None = None) -> dict[str, Any]:
+    def process(
+        self,
+        source: AudioSource,
+        *,
+        reply_override: str | None = None,
+        reply_builder: Callable[[str], str] | None = None,
+    ) -> dict[str, Any]:
         with self._process_lock:
             with self._state_lock:
                 generation = self._generation
@@ -370,7 +376,12 @@ class SpeechCoordinator:
                 self._check(generation, started)
 
                 mark = time.monotonic()
-                reply = (reply_override or "").strip() or local_reply(transcript)
+                reply = (reply_override or "").strip()
+                if not reply:
+                    reply = reply_builder(transcript) if reply_builder else local_reply(transcript)
+                reply = reply.strip()
+                if not reply:
+                    raise SpeechError("reply_empty", "对话系统没有生成回复")
                 timings["reply_ms"] = round((time.monotonic() - mark) * 1000)
 
                 mark = time.monotonic()

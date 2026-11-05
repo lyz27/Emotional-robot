@@ -68,6 +68,16 @@ def test_file_pipeline_returns_transcript_reply_audio_and_timings(tmp_path: Path
     assert (tmp_path / "audio" / Path(result["audio_url"]).name).is_file()
 
 
+def test_file_pipeline_accepts_dialogue_reply_builder(tmp_path: Path) -> None:
+    coordinator = SpeechCoordinator(
+        model_dir=tmp_path / "models", output_dir=tmp_path / "audio", engine=FakeEngine()
+    )
+    result = coordinator.process(
+        WavBytesSource(wav_bytes()), reply_builder=lambda transcript: f"记忆回复：{transcript}"
+    )
+    assert result["reply"] == "记忆回复：你好，机器人。"
+
+
 def test_text_to_speech_and_interrupt(tmp_path: Path) -> None:
     coordinator = SpeechCoordinator(
         model_dir=tmp_path / "models",

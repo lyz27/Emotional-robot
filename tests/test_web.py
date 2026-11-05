@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from enmotion_robot.companion import CompanionCore
 from enmotion_robot.web import create_app
 
 
@@ -17,9 +18,10 @@ class StubSpeech:
     def status(self) -> dict:
         return {"ready": True, "offline": True, "models": {"asr": True, "vad": True, "tts": True}}
 
-    def process(self, source, *, reply_override=None) -> dict:
+    def process(self, source, *, reply_override=None, reply_builder=None) -> dict:
         assert source.name == "hello.wav"
-        return {"ok": True, "transcript": "你好", "reply": reply_override or "你好呀", "audio_url": "/audio/reply.wav"}
+        reply = reply_override or (reply_builder("你好") if reply_builder else "你好呀")
+        return {"ok": True, "transcript": "你好", "reply": reply, "audio_url": "/audio/reply.wav"}
 
     def synthesize_text(self, text: str) -> dict:
         return {"ok": True, "text": text, "audio_url": "/audio/tts.wav"}
@@ -99,4 +101,41 @@ def test_speech_file_tts_and_interrupt_endpoints() -> None:
     assert response.status_code == 200
     assert response.json()["text"] == "测试语音"
     assert client.post("/api/speech/interrupt").json()["generation"] == 1
+
+
+def test_companion_chat_memory_edit_delete_and_emotion(tmp_path) -> None:
+    companion = CompanionCore(database_path=tmp_path / "companion.db")
+    client = TestClient(
+        create_app(StubSupervisor(), companion=companion, manage_supervisor=False)
+    )
+    response = client.post(
+        "/api/companion/chat",
+        json={"text": "我叫小明，我喜欢蓝色，今天很开心", "session_id": "browser"},
+    )
+    assert response.status_code == 200
+    assert response.json()["emotion"]["name"] == "happy"
+    assert client.get("/api/robot").json()["simulation"]["emotion"] == "happy"
+
+    memories = client.get("/api/companion/memories").json()["items"]
+    name = next(item for item in memories if item["key"] == "name")
+    assert client.put(
+        f"/api/companion/memories/{name['id']}", json={"value": "小蓝"}
+    ).json()["memory"]["value"] == "小蓝"
+    assert client.delete(f"/api/companion/memories/{name['id']}").status_code == 200
+    assert client.delete("/api/companion/memories").json()["ok"] is True
+
+
+def test_voice_uses_companion_when_reply_override_is_empty(tmp_path) -> None:
+    companion = CompanionCore(database_path=tmp_path / "companion.db")
+    client = TestClient(
+        create_app(
+            StubSupervisor(), speech=StubSpeech(), companion=companion, manage_supervisor=False
+        )
+    )
+    response = client.post(
+        "/api/speech/process",
+        files={"audio": ("hello.wav", b"fake wav", "audio/wav")},
+    )
+    assert response.status_code == 200
+    assert response.json()["companion"]["provider"] == "offline-local"
 

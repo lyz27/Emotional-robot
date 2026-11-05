@@ -49,6 +49,14 @@
     .speech-result p { margin:5px 0 10px; }
     .speech-result audio { width:100%; height:36px; margin-top:4px; }
     .metrics { color:var(--muted); font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .chat-log { max-height:260px; overflow:auto; display:grid; gap:8px; margin:10px 0; padding:9px; border:1px solid var(--line); border-radius:12px; background:#08141d; }
+    .chat-message { max-width:88%; padding:9px 11px; border-radius:12px; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .chat-message.user { justify-self:end; background:#19405c; } .chat-message.robot { justify-self:start; background:#173029; border:1px solid #285642; }
+    .privacy-row { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-top:8px; color:var(--muted); }
+    .privacy-row label { display:flex; align-items:center; gap:6px; }
+    .memory-list { display:grid; gap:7px; margin-top:9px; }
+    .memory-item { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:9px 10px; border:1px solid var(--line); border-radius:10px; background:#0a1721; }
+    .memory-item small { display:block; color:var(--muted); } .memory-actions { display:flex; gap:5px; }
     .status-item { padding:10px 11px; border-radius:11px; background:#0a1721; border:1px solid #203748; } .status-item span { display:block; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.07em; } .status-item strong { display:block; margin-top:4px; overflow-wrap:anywhere; }
     .face-map { height:125px; position:relative; border:1px solid var(--line); border-radius:12px; background:linear-gradient(#1c344555 1px,transparent 1px),linear-gradient(90deg,#1c344555 1px,transparent 1px),#0a1721; background-size:25% 25%; cursor:crosshair; }
     .face-marker { width:18px; height:18px; position:absolute; left:50%; top:50%; border:2px solid var(--warm); border-radius:50%; box-shadow:0 0 12px var(--warm); transform:translate(-50%,-50%); display:none; } .face-map.detected .face-marker { display:block; }
@@ -61,7 +69,7 @@
 <body>
 <main>
   <header>
-    <div><h1>Enmotion Studio</h1><div class="subtitle">第二周 · 表情与机器人行为模拟器</div></div>
+    <div><h1>Enmotion Studio</h1><div class="subtitle">第四周 · 对话、记忆与情绪陪伴核心</div></div>
     <div class="badges"><div class="badge connected"><span class="dot"></span><span>模拟器运行中</span></div><div id="deviceBadge" class="badge"><span class="dot"></span><span id="deviceText">ESP32 检测中</span></div></div>
   </header>
   <div class="layout">
@@ -86,13 +94,25 @@
     </div>
     <div class="stack">
       <section class="card">
+        <h2>第四周 · 对话、记忆与情绪</h2>
+        <div id="companionState" class="speech-state">正在读取陪伴核心状态…</div>
+        <div id="chatLog" class="chat-log"><div class="hint">可以先说：“我叫小明，我喜欢蓝色，今天很开心。”</div></div>
+        <textarea id="chatInput" placeholder="输入文字测试记忆、情绪和陪伴回复"></textarea>
+        <div class="privacy-row"><label><input id="rememberChat" type="checkbox" checked>允许保存本轮上下文和非敏感记忆</label><label><input id="speakChat" type="checkbox">同时语音播报</label></div>
+        <div class="speech-row"><button id="sendChat">发送</button><button id="clearSession" class="small">清除本轮上下文</button></div>
+        <h3>可控长期记忆 <span id="memoryCount">0</span></h3>
+        <div class="hint">自动识别姓名、喜好与近期事件；你可以随时修改或删除。</div>
+        <div id="memoryList" class="memory-list"><div class="hint">暂无长期记忆</div></div>
+        <div class="speech-row"><button id="refreshMemories" class="small">刷新记忆</button><button id="clearMemories" class="small danger">清空全部记忆</button></div>
+      </section>
+      <section class="card">
         <h2>第三周 · 离线语音链路</h2>
         <div id="speechState" class="speech-state">正在检查离线模型…</div>
         <label for="speechFile">上传中文 PCM WAV 录音</label>
         <input id="speechFile" type="file" accept="audio/wav,.wav">
         <div class="hint">支持单/双声道、16位 PCM、最长60秒；无需麦克风。</div>
         <h3>可选：覆盖本地测试回复</h3>
-        <textarea id="replyOverride" placeholder="留空时使用第三周本地回复规则"></textarea>
+        <textarea id="replyOverride" placeholder="留空时调用第四周陪伴核心；填写后只测试指定回复"></textarea>
         <div class="speech-row"><button id="processSpeech">识别并生成回复</button><button id="stopSpeech" class="danger">停止播放 / 打断</button></div>
         <div id="speechResult" class="speech-result">
           <span class="label">识别文字</span><p id="transcript">—</p>
@@ -115,7 +135,7 @@
   const $ = id => document.getElementById(id);
   const emotionNames = {calm:"平静",happy:"开心",curious:"好奇",sleepy:"困倦",worried:"担忧",thinking:"思考"};
   const face = $("face"), head = $("head"), events = $("events");
-  let state = null, speechStatus = null, lastSequence = -1, facePosition = {x:0,y:0}, refreshing = false;
+  let state = null, speechStatus = null, companionStatus = null, lastSequence = -1, facePosition = {x:0,y:0}, refreshing = false;
 
   async function command(name, payload = {}, target = "simulator") {
     const response = await fetch(`/api/control/${name}`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({target,...payload})});
@@ -134,16 +154,25 @@
   }
   function renderDevice(d) { $("deviceBadge").classList.toggle("connected",d.connected); $("deviceText").textContent=d.connected?`ESP32 · ${d.state}`:`ESP32 · ${d.service||"离线"}`; $("statusDevice").textContent=d.state||"unknown"; $("statusPort").textContent=d.port||"—"; $("statusFirmware").textContent=d.firmware||"—"; $("statusReconnect").textContent=d.reconnect_count??0; document.querySelectorAll("[data-device-command]").forEach(b=>b.disabled=!d.connected); }
   function renderSpeech(s) { speechStatus=s; const names={asr:"识别",vad:"VAD",tts:"合成"}; const missing=Object.entries(s.models||{}).filter(([,ready])=>!ready).map(([name])=>names[name]); $("speechState").classList.toggle("ready",s.ready); $("speechState").textContent=s.ready?"离线中文识别、VAD 和语音合成已就绪":`模型尚未就绪：${missing.join("、")||"正在加载"}`; $("processSpeech").disabled=!s.ready||s.processing; $("ttsButton").disabled=!s.ready||s.processing; }
+  function renderCompanion(c){companionStatus=c;const e=c.emotion||{};$("companionState").classList.toggle("ready",c.ready);$("companionState").textContent=`${c.provider} · ${emotionNames[e.name]||e.name} ${Math.round((e.intensity||0)*100)}% · ${c.memory_count} 条记忆 · ${c.session?.has_summary?"已有会话摘要":"短期上下文"}`;}
   function escapeHtml(value){const div=document.createElement("div");div.textContent=String(value);return div.innerHTML;}
   function renderEvents(items){events.innerHTML=items.length?items.map(item=>`<div class="event"><time>${new Date(item.at).toLocaleTimeString()}</time><span class="event-kind">${escapeHtml(item.kind)}</span><span>${escapeHtml(item.message)}</span></div>`).join(""):'<div class="hint">暂无事件</div>';}
   function debounce(fn,wait=110){let timer;return(...args)=>{clearTimeout(timer);timer=setTimeout(()=>fn(...args),wait);};}
-  async function refresh(){if(refreshing)return;refreshing=true;try{const response=await fetch("/api/robot",{cache:"no-store"});if(!response.ok)throw new Error(response.statusText);const data=await response.json();renderSimulation(data.simulation);renderDevice(data.device);renderSpeech(data.speech);}catch(error){$("deviceText").textContent="调试服务离线";}finally{refreshing=false;}}
+  async function refresh(){if(refreshing)return;refreshing=true;try{const response=await fetch("/api/robot",{cache:"no-store"});if(!response.ok)throw new Error(response.statusText);const data=await response.json();renderSimulation(data.simulation);renderDevice(data.device);renderSpeech(data.speech);renderCompanion(data.companion);}catch(error){$("deviceText").textContent="调试服务离线";}finally{refreshing=false;}}
 
   function speechError(body,statusText){const detail=body?.detail;return typeof detail==="object"?detail.message||JSON.stringify(detail):detail||statusText;}
   function showSpeechResult(data){$("transcript").textContent=data.transcript||"（仅语音合成）";$("speechReply").textContent=data.reply||data.text;$("replyAudio").src=`${data.audio_url}?t=${Date.now()}`;$("speechResult").classList.add("visible");const t=data.timings||{tts_ms:data.tts_ms};$("speechMetrics").textContent=`离线处理 · 输入 ${data.input_seconds??"—"}s · 语音 ${data.speech_seconds??"—"}s · 输出 ${data.output_seconds}s · ${Object.entries(t).map(([k,v])=>`${k}=${v}ms`).join(" · ")}`;$("replyAudio").play().catch(()=>{});}
-  $("processSpeech").addEventListener("click",async()=>{const file=$("speechFile").files[0];if(!file){alert("请先选择 WAV 录音文件");return;}$("processSpeech").disabled=true;$("speechState").textContent="正在执行 VAD、中文识别和语音合成…";const data=new FormData();data.append("audio",file);data.append("reply",$("replyOverride").value);try{const response=await fetch("/api/speech/process",{method:"POST",body:data});const body=await response.json();if(!response.ok)throw new Error(speechError(body,response.statusText));showSpeechResult(body);}catch(error){alert(`语音处理失败：${error.message}`);}finally{await refresh();}});
+  $("processSpeech").addEventListener("click",async()=>{const file=$("speechFile").files[0];if(!file){alert("请先选择 WAV 录音文件");return;}$("processSpeech").disabled=true;$("speechState").textContent="正在执行 VAD、中文识别、陪伴对话和语音合成…";const data=new FormData();data.append("audio",file);data.append("reply",$("replyOverride").value);data.append("session_id","browser");data.append("remember",$("rememberChat").checked);try{const response=await fetch("/api/speech/process",{method:"POST",body:data});const body=await response.json();if(!response.ok)throw new Error(speechError(body,response.statusText));showSpeechResult(body);if(body.companion){appendChat("user",body.transcript);appendChat("robot",body.reply);await loadMemories();}}catch(error){alert(`语音处理失败：${error.message}`);}finally{await refresh();}});
   $("ttsButton").addEventListener("click",async()=>{const text=$("ttsText").value.trim();if(!text){alert("请输入需要合成的文字");return;}$("ttsButton").disabled=true;try{const response=await fetch("/api/speech/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text})});const body=await response.json();if(!response.ok)throw new Error(speechError(body,response.statusText));showSpeechResult(body);}catch(error){alert(`语音合成失败：${error.message}`);}finally{await refresh();}});
   $("stopSpeech").addEventListener("click",async()=>{const player=$("replyAudio");player.pause();player.currentTime=0;await fetch("/api/speech/interrupt",{method:"POST"});});
+
+  function appendChat(role,text){const hint=$("chatLog").querySelector(".hint");if(hint)hint.remove();const item=document.createElement("div");item.className=`chat-message ${role}`;item.textContent=text;$("chatLog").appendChild(item);$("chatLog").scrollTop=$("chatLog").scrollHeight;}
+  async function loadMemories(){const response=await fetch("/api/companion/memories",{cache:"no-store"});const body=await response.json();if(!response.ok)throw new Error(speechError(body,response.statusText));$("memoryCount").textContent=body.count;const labels={profile:"资料",preference:"喜好",event:"事件"};$("memoryList").innerHTML=body.items.length?body.items.map(item=>`<div class="memory-item"><div><small>${labels[item.kind]||escapeHtml(item.kind)} · ${escapeHtml(item.key)}</small><span>${escapeHtml(item.value)}</span></div><div class="memory-actions"><button class="small" data-edit-memory="${item.id}" data-memory-value="${encodeURIComponent(item.value)}">修改</button><button class="small danger" data-delete-memory="${item.id}">删除</button></div></div>`).join(""):'<div class="hint">暂无长期记忆</div>';}
+  async function sendChat(){const text=$("chatInput").value.trim();if(!text)return;$("sendChat").disabled=true;appendChat("user",text);$("chatInput").value="";try{const response=await fetch("/api/companion/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text,session_id:"browser",remember:$("rememberChat").checked})});const body=await response.json();if(!response.ok)throw new Error(speechError(body,response.statusText));appendChat("robot",body.reply);if($("speakChat").checked){const tts=await fetch("/api/speech/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:body.reply})});const audio=await tts.json();if(tts.ok)showSpeechResult(audio);}await loadMemories();await refresh();}catch(error){appendChat("robot",`处理失败：${error.message}`);}finally{$("sendChat").disabled=false;}}
+  $("sendChat").addEventListener("click",sendChat);$("chatInput").addEventListener("keydown",event=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();sendChat();}});$("refreshMemories").addEventListener("click",loadMemories);
+  $("memoryList").addEventListener("click",async event=>{const edit=event.target.closest("[data-edit-memory]");const remove=event.target.closest("[data-delete-memory]");if(edit){const value=prompt("修改记忆内容",decodeURIComponent(edit.dataset.memoryValue));if(value===null)return;const response=await fetch(`/api/companion/memories/${edit.dataset.editMemory}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({value})});if(!response.ok){const body=await response.json();alert(speechError(body,response.statusText));}await loadMemories();}if(remove&&confirm("删除这条记忆？")){await fetch(`/api/companion/memories/${remove.dataset.deleteMemory}`,{method:"DELETE"});await loadMemories();await refresh();}});
+  $("clearMemories").addEventListener("click",async()=>{if(!confirm("确认清空全部长期记忆？此操作不能撤销。"))return;await fetch("/api/companion/memories",{method:"DELETE"});await loadMemories();await refresh();});
+  $("clearSession").addEventListener("click",async()=>{await fetch("/api/companion/sessions/browser",{method:"DELETE"});$("chatLog").innerHTML='<div class="hint">本轮上下文已清除，长期记忆仍保留。</div>';await refresh();});
 
   document.querySelectorAll("[data-emotion]").forEach(button=>button.addEventListener("click",async()=>{await command("set_emotion",{emotion:button.dataset.emotion});await refresh();}));
   $("blinkButton").addEventListener("click",async()=>{blinkVisual();await command("blink");await refresh();});
@@ -157,7 +186,7 @@
   document.querySelectorAll("[data-device-command]").forEach(button=>button.addEventListener("click",async()=>{const name=button.dataset.deviceCommand;if(name==="estop"&&!confirm("确认触发 ESP32 急停？"))return;try{await command(name,{},"esp32");await refresh();}catch(error){alert(`${name} 失败：${error.message}`);}}));
   $("reset").addEventListener("click",async()=>{await command("reset");await refresh();});
   function scheduleBlink(){const delay=(state?.emotion==="sleepy"?2200:3500)+Math.random()*2800;setTimeout(async()=>{if(!document.hidden){blinkVisual();try{await command("blink");}catch(_){}}scheduleBlink();},delay);}
-  refresh(); setInterval(refresh,1000); scheduleBlink();
+  refresh(); loadMemories(); setInterval(refresh,1000); scheduleBlink();
 </script>
 </body>
 </html>

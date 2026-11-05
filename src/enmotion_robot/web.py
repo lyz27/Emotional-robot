@@ -12,6 +12,7 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
+from .companion import CompanionCore, CompanionError
 from .supervisor import SAFE_COMMANDS, DeviceSupervisor
 from .simulator import SIMULATOR_COMMANDS, RobotSimulator
 from .speech import SpeechCoordinator, SpeechError, WavBytesSource
@@ -25,12 +26,14 @@ def create_app(
     supervisor: DeviceSupervisor | None = None,
     simulator: RobotSimulator | None = None,
     speech: SpeechCoordinator | None = None,
+    companion: CompanionCore | None = None,
     *,
     manage_supervisor: bool = True,
 ) -> FastAPI:
     runtime = supervisor or DeviceSupervisor()
     robot = simulator or RobotSimulator()
     voice = speech or SpeechCoordinator()
+    mind = companion or CompanionCore()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -44,6 +47,17 @@ def create_app(
     app.state.supervisor = runtime
     app.state.simulator = robot
     app.state.speech = voice
+    app.state.companion = mind
+    companion_control = {"active": False, "emotion": "calm"}
+
+    def apply_companion_action(result: dict) -> None:
+        action = result["action"]
+        robot.command("set_emotion", emotion=action["emotion"])
+        robot.command("set_gaze", **action["gaze"])
+        robot.command("set_neck", **action["neck"])
+        if action.get("blink"):
+            robot.command("blink")
+        companion_control.update(active=True, emotion=action["emotion"])
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
@@ -66,7 +80,78 @@ def create_app(
 
     @app.get("/api/robot")
     def robot_status() -> dict:
-        return {"device": runtime.snapshot(), "simulation": robot.snapshot(), "speech": voice.status()}
+        companion_state = mind.status("browser")
+        simulation = robot.snapshot()
+        if (
+            companion_control["active"]
+            and simulation["emotion"] == companion_control["emotion"]
+            and simulation["emotion"] != companion_state["emotion"]["name"]
+        ):
+            apply_companion_action({"action": mind.current_action()})
+            simulation = robot.snapshot()
+        return {
+            "device": runtime.snapshot(),
+            "simulation": simulation,
+            "speech": voice.status(),
+            "companion": companion_state,
+        }
+
+    @app.get("/api/companion/status")
+    def companion_status(session_id: str = "default") -> dict:
+        return mind.status(session_id)
+
+    @app.post("/api/companion/chat")
+    async def companion_chat(payload: dict = Body(default_factory=dict)) -> dict:
+        try:
+            result = await run_in_threadpool(
+                mind.chat,
+                str(payload.get("text", "")),
+                session_id=str(payload.get("session_id", "default")),
+                remember=bool(payload.get("remember", True)),
+            )
+            apply_companion_action(result)
+            return result
+        except CompanionError as exc:
+            raise HTTPException(
+                status_code=422, detail={"code": exc.code, "message": str(exc)}
+            ) from exc
+
+    @app.get("/api/companion/memories")
+    def list_memories(kind: str | None = None) -> dict:
+        try:
+            items = mind.store.list_memories(kind)
+            return {"items": items, "count": len(items)}
+        except CompanionError as exc:
+            raise HTTPException(status_code=422, detail={"code": exc.code, "message": str(exc)}) from exc
+
+    @app.delete("/api/companion/memories")
+    def clear_memories() -> dict:
+        return {"ok": True, "deleted": mind.store.clear_memories()}
+
+    @app.put("/api/companion/memories/{memory_id}")
+    def update_memory(memory_id: int, payload: dict = Body(default_factory=dict)) -> dict:
+        try:
+            return {
+                "ok": True,
+                "memory": mind.store.update_memory(
+                    memory_id,
+                    key=str(payload["key"]) if "key" in payload else None,
+                    value=str(payload["value"]) if "value" in payload else None,
+                ),
+            }
+        except CompanionError as exc:
+            status = 404 if exc.code == "memory_not_found" else 422
+            raise HTTPException(status_code=status, detail={"code": exc.code, "message": str(exc)}) from exc
+
+    @app.delete("/api/companion/memories/{memory_id}")
+    def delete_memory(memory_id: int) -> dict:
+        if not mind.store.delete_memory(memory_id):
+            raise HTTPException(status_code=404, detail="memory not found")
+        return {"ok": True, "deleted": memory_id}
+
+    @app.delete("/api/companion/sessions/{session_id}")
+    def clear_session(session_id: str) -> dict:
+        return {"ok": True, "deleted": mind.store.clear_session(mind._session_id(session_id))}
 
     @app.get("/api/speech/status")
     def speech_status() -> dict:
@@ -76,21 +161,37 @@ def create_app(
     async def process_speech(
         audio: UploadFile = File(...),
         reply: str = Form(default=""),
+        session_id: str = Form(default="voice"),
+        remember: bool = Form(default=True),
     ) -> dict:
         if not (audio.filename or "").lower().endswith(".wav"):
             raise HTTPException(status_code=415, detail="请上传 .wav 格式的音频文件")
         data = await audio.read()
         if len(data) > 20 * 1024 * 1024:
             raise HTTPException(status_code=413, detail="音频文件不能超过 20MB")
+        dialogue: dict | None = None
+
+        def build_reply(transcript: str) -> str:
+            nonlocal dialogue
+            dialogue = mind.chat(transcript, session_id=session_id, remember=remember)
+            apply_companion_action(dialogue)
+            return dialogue["reply"]
+
         try:
-            return await run_in_threadpool(
+            result = await run_in_threadpool(
                 voice.process,
                 WavBytesSource(data, audio.filename or "upload.wav"),
                 reply_override=reply,
+                reply_builder=None if reply.strip() else build_reply,
             )
+            if dialogue:
+                result["companion"] = dialogue
+            return result
         except SpeechError as exc:
             status_code = 504 if exc.code == "timeout" else 409 if exc.code == "interrupted" else 422
             raise HTTPException(status_code=status_code, detail={"code": exc.code, "message": str(exc)}) from exc
+        except CompanionError as exc:
+            raise HTTPException(status_code=422, detail={"code": exc.code, "message": str(exc)}) from exc
 
     @app.post("/api/speech/tts")
     def synthesize_speech(payload: dict = Body(default_factory=dict)) -> dict:
@@ -121,6 +222,7 @@ def create_app(
             if target == "simulator":
                 if command not in SIMULATOR_COMMANDS:
                     raise HTTPException(status_code=400, detail="unsupported simulator command")
+                companion_control["active"] = False
                 return {"target": target, "result": robot.command(command, **payload)}
             if target == "esp32":
                 if command not in SAFE_COMMANDS:

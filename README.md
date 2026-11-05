@@ -90,6 +90,34 @@ Speech endpoints:
 - `POST /api/speech/interrupt`
 - `GET /audio/{generated-file}.wav`
 
+## Companion core (Week 4)
+
+The Week 4 core adds a bounded conversation context, automatic summaries,
+controllable SQLite memory, an emotion state machine with natural decay, expression
+and pose mapping, privacy controls, and companion-safety boundaries. It runs with
+the offline local dialogue fallback by default, so no new hardware or API key is
+required.
+
+The dialogue provider is hybrid-ready. To use an OpenAI-compatible chat endpoint,
+set `ENMOTION_DIALOGUE_URL` to the full chat-completions URL and optionally set
+`ENMOTION_DIALOGUE_MODEL`, `ENMOTION_DIALOGUE_API_KEY`, and
+`ENMOTION_DIALOGUE_TIMEOUT`. Provider failure automatically falls back to the local
+dialogue engine. Messages marked private or containing credentials are never sent
+to the remote provider.
+
+Companion endpoints:
+
+- `GET /api/companion/status`
+- `POST /api/companion/chat`
+- `GET /api/companion/memories`
+- `PUT /api/companion/memories/{id}`
+- `DELETE /api/companion/memories/{id}`
+- `DELETE /api/companion/memories`
+- `DELETE /api/companion/sessions/{session_id}`
+
+The generated database defaults to `runtime/companion.db` and is excluded from
+version control. The dashboard can view, edit, delete, or clear all saved memories.
+
 ## Firmware
 
 ```bash
