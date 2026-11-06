@@ -85,3 +85,14 @@ def test_request_replay_does_not_execute_again(tmp_path, monkeypatch):
     assert len(calls) == 1
     with pytest.raises(ValueError):
         work.chat("其他消息", request_id="same")
+
+
+def test_review_and_breakdown_can_read_but_never_write(tmp_path):
+    work = WorkSpace(tmp_path / "work.db")
+    task = work.save("tasks", {"title": "跟进方案"})
+    tools = WorkTools(work, user_text="创建待办并修改方案", read_only=True)
+    assert tools.execute({"operation": "list_tasks"})["ok"]
+    for operation in ("create_task", "update_task", "save_note", "update_note"):
+        assert not tools.execute({"operation": operation, "title": "跟进方案", "id": task["id"], "done": True})["ok"]
+    assert work.snapshot()["tasks"] == [task]
+    assert not work.snapshot()["notes"]

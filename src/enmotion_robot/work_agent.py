@@ -37,11 +37,12 @@ def write_receipts(steps):
 
 
 class WorkTools:
-    def __init__(self, workspace, user_text=None):
+    def __init__(self, workspace, user_text=None, *, read_only=False):
         self.work = workspace
         self.steps = []
         self.cache = {}
         self.user_text = user_text
+        self.read_only = read_only
 
     def resolve_target(self, kind, params, records):
         """Resolve human titles first; database identifiers stay an internal detail."""
@@ -77,6 +78,8 @@ class WorkTools:
             return self.cache[signature]
         operation = params.get("operation")
         try:
+            if self.read_only and operation not in {"list_tasks", "search_notes", "read_note"}:
+                raise ValueError("拆解和复盘仅提供建议，请切换随手记模式来保存或修改记录")
             state = self.work.snapshot()
             if operation == "list_tasks":
                 query = str(params.get("query", "")).strip().lower()
@@ -136,7 +139,7 @@ def run_agent(workspace, text, mode, request_id=None):
     from qwen_agent.agents import FnCallAgent
     from qwen_agent.tools.base import BaseTool
 
-    tools = WorkTools(workspace, user_text=text)
+    tools = WorkTools(workspace, user_text=text, read_only=mode in {"breakdown", "review"})
     fresh_records = None
     if re.search(r"完成|修改|更新|改成|改为|推迟|延期", text):
         operation = "search_notes" if "笔记" in text else "list_tasks"

@@ -202,6 +202,27 @@ The global shortcut uses Carbon hotkey registration, without accessibility or
 screen recording permission. If occupied, the menu bar entry remains available.
 Reminder delivery is still through the open work page, not native notifications.
 
+The native window now includes a right sidebar for pending tasks and the ten
+most recent notes. It refreshes on opening, after submissions and every 30 seconds.
+The menu bar shows the pending count (or offline state); its tooltip lists up to
+three tasks. Task rows show Beijing reminder times and overdue status. Checking
+a task completes the same record used by the browser; note titles open their
+contents in the response area. Lists retained during network failures are marked
+as potentially stale. Authenticated routes: `GET /api/sync/work` and
+`PATCH /api/sync/tasks/{id}` (strict boolean `done` only).
+
+Four input modes share the existing Jetson model: capture, save notes, break down
+a goal, and review work. Breakdown and review tools enforce read-only access;
+suggestions never automatically create or change records in those modes. Change
+back to capture to request actual updates. Connection failures retain the draft.
+Note capture requires a successful save tool receipt before reporting success.
+Definitive failures without writes retain the draft and allow a fresh attempt;
+unknown network outcomes and partial writes retain the original replay ID.
+Native diagnostic commands on the installed executable: `--check-layout`
+(view bounds and sidebar rows) and `--check-work` (authenticated list retrieval).
+Live-model acceptance: `python tests/capture_smoke.py` on the Jetson; it uses a
+disposable database and never modifies the user's tasks or notes.
+
 ## Firmware
 
 ```bash

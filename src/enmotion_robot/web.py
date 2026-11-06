@@ -125,16 +125,44 @@ def create_app(
             raise HTTPException(422, "请输入 1–2200 字的工作内容")
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= 80:
             raise HTTPException(422, "缺少有效的提交标识")
+        mode = payload.get("mode", "chat")
+        if mode not in ("chat", "notes", "breakdown", "review"):
+            raise HTTPException(422, "未知工作模式")
         note = text.strip().startswith(("记一下", "笔记", "记录一下", "保存笔记", "保存工作笔记"))
         instruction = (
-            "请调用 save_note 保存以下工作笔记，保留原意，不设置提醒：\n" if note else
+            "请保存以下工作笔记，保留原意，不设置提醒。调用 work_records 工具，operation 为 save_note，title 为简短标题，body 为正文：\n" if note or mode == "notes" else
             "请办理这条随手记：工作事项建立待办，普通资料保存笔记；修改或完成按原意执行。不要编造时间。用户内容：\n"
         )
+        if mode == "breakdown":
+            instruction = "请拆解以下工作目标，给出先后步骤与第一步；本轮只给建议，不创建或修改记录：\n"
+        elif mode == "review":
+            instruction = "请查询现有待办和笔记，结合以下补充做工作复盘：已完成、未完成、卡点和下一步；本轮不修改记录，不编造事实：\n"
         prompt = instruction + text.strip()
         try:
-            return await run_in_threadpool(work.chat, prompt, "chat", request_id)
+            result = await run_in_threadpool(work.chat, prompt, mode, request_id)
+            if mode == "notes" or (note and mode == "chat"):
+                steps = result.get("agent", {}).get("steps", [])
+                if not any(s.get("ok") and s.get("operation") == "save_note" for s in steps):
+                    result = {**result, "fallback": True, "reply": "笔记尚未保存，文字已保留，请重试或调整内容。"}
+            return result
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
+
+    @app.get("/api/sync/work")
+    def quick_work(authorization: str | None = Header(default=None)):
+        sync_authorize(authorization)
+        state = work.snapshot()
+        return {"tasks": [t for t in state["tasks"] if not t["done"]], "notes": state["notes"][:10]}
+
+    @app.patch("/api/sync/tasks/{item_id}")
+    def quick_complete(item_id: int, payload: dict = Body(...), authorization: str | None = Header(default=None)):
+        sync_authorize(authorization)
+        if set(payload) != {"done"} or type(payload["done"]) is not bool:
+            raise HTTPException(422, "这里只接受完成状态")
+        try:
+            return work.save("tasks", {"done": payload["done"]}, item_id)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
 
     @app.post("/api/work/{kind}")
     def work_create(kind: str, payload: dict = Body(default_factory=dict)):
