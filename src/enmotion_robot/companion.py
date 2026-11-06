@@ -261,8 +261,8 @@ class EmotionStateMachine:
         normalized = text.lower()
         rules = (
             ("worried", 0.95, "safety", ("自杀", "不想活", "伤害自己", "结束生命", "跳楼")),
-            ("happy", 0.85, "positive", ("开心", "高兴", "太好了", "成功了", "喜欢你", "谢谢")),
             ("worried", 0.82, "distress", ("难过", "伤心", "害怕", "焦虑", "不开心", "孤独", "压力")),
+            ("happy", 0.85, "positive", ("开心", "高兴", "太好了", "成功了", "喜欢你", "谢谢")),
             ("sleepy", 0.75, "fatigue", ("困了", "好累", "疲惫", "想睡", "没精神")),
             ("thinking", 0.68, "reflection", ("分析", "想一想", "怎么办", "建议", "选择")),
             ("curious", 0.62, "question", ("为什么", "是什么", "怎么", "吗", "？", "?")),
@@ -452,6 +452,10 @@ class OpenAICompatibleDialogueModel:
             f"会话摘要：{context.get('summary') or '无'}。"
             "只返回一个JSON对象：reply为120个中文字符以内的自然回复；emotion只能是"
             "calm、happy、curious、sleepy、worried、thinking之一；intensity为0到1。"
+            "emotion表示机器人说出reply时的表达，不是用户的心情。先写回复，再选择与回复一致的表情。"
+            "安慰、倾听用calm或低强度worried；祝贺用happy；真正好奇探索用curious；"
+            "思考分析用thinking；仅在机器人表达困意时用sleepy。不要因为句尾有问号就用curious，"
+            "也不要因为用户累了就让机器人显得困倦。普通表达强度0.25到0.6，避免夸张。"
         )
         messages = [{"role": "system", "content": system}]
         messages.extend(
@@ -632,6 +636,17 @@ class CompanionCore:
             reply = self.provider.generate(text, context=context, memories=memories, emotion=emotion)
             if self.provider.emotion_signal:
                 emotion = self.emotion.set_from_model(*self.provider.emotion_signal)
+        # The displayed expression belongs to the reply, not the user's emotion.
+        expression_name, expression_intensity = emotion.name, emotion.intensity
+        if safety["urgent"]:
+            expression_name, expression_intensity = "worried", 0.6
+        elif any(cue in reply for cue in ("恭喜", "替你开心", "值得庆祝", "太好了")):
+            expression_name, expression_intensity = "happy", 0.6
+        elif any(cue in reply for cue in ("陪着你", "听你说", "慢慢来", "不太好受", "辛苦了", "我在这里")):
+            expression_name, expression_intensity = "calm", 0.35
+        elif expression_name == "sleepy" and not any(cue in reply for cue in ("我困", "我也累", "我想睡")):
+            expression_name, expression_intensity = "calm", 0.3
+        emotion = self.emotion.set_from_model(expression_name, expression_intensity)
         if allow_store:
             self.store.add_exchange(session_id, text, reply)
         return {

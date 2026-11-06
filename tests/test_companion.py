@@ -59,8 +59,15 @@ def test_emotion_changes_reply_and_action(tmp_path: Path) -> None:
     worried = companion.chat("我今天很难过")
     assert happy["emotion"]["name"] == "happy"
     assert happy["action"]["emotion"] == "happy"
-    assert worried["emotion"]["name"] == "worried"
+    assert worried["emotion"]["name"] == "calm"  # calm support, not copying user sadness
     assert happy["reply"] != worried["reply"]
+
+
+def test_negated_happiness_is_distress_and_fatigue_gets_support(tmp_path: Path) -> None:
+    assert EmotionStateMachine.classify("我不开心")[0] == "worried"
+    result = core(tmp_path).chat("我今天好累")
+    assert result["emotion"]["name"] == "calm"
+    assert "放松" in result["reply"]
 
 
 def test_privacy_mode_does_not_store_content(tmp_path: Path) -> None:

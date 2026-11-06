@@ -139,3 +139,20 @@ def test_voice_uses_companion_when_reply_override_is_empty(tmp_path) -> None:
     assert response.status_code == 200
     assert response.json()["companion"]["provider"] == "offline-local"
 
+
+def test_deferred_expression_does_not_move_before_audio_and_blink_preserves_decay(tmp_path):
+    from enmotion_robot.companion import EmotionStateMachine
+    now = [0.0]
+    mind = CompanionCore(
+        database_path=tmp_path / "memory.db",
+        emotion=EmotionStateMachine(decay_seconds=10, clock=lambda: now[0]),
+    )
+    client = TestClient(create_app(StubSupervisor(), companion=mind, manage_supervisor=False))
+    result = client.post("/api/companion/chat", json={"text":"我好开心","defer_expression":True})
+    assert result.json()["emotion"]["name"] == "happy"
+    assert client.get("/api/robot").json()["simulation"]["emotion"] == "calm"
+    client.post("/api/companion/chat", json={"text":"我好开心"})
+    client.post("/api/control/blink", json={"target":"simulator"})
+    now[0] = 20
+    assert client.get("/api/robot").json()["simulation"]["emotion"] == "calm"
+

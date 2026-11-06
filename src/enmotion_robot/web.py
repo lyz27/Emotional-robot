@@ -109,7 +109,8 @@ def create_app(
                 session_id=str(payload.get("session_id", "default")),
                 remember=bool(payload.get("remember", True)),
             )
-            apply_companion_action(result)
+            if not payload.get("defer_expression", False):
+                apply_companion_action(result)
             return result
         except CompanionError as exc:
             raise HTTPException(
@@ -174,7 +175,6 @@ def create_app(
         def build_reply(transcript: str) -> str:
             nonlocal dialogue
             dialogue = mind.chat(transcript, session_id=session_id, remember=remember)
-            apply_companion_action(dialogue)
             return dialogue["reply"]
 
         try:
@@ -186,6 +186,7 @@ def create_app(
             )
             if dialogue:
                 result["companion"] = dialogue
+                apply_companion_action(dialogue)
             return result
         except SpeechError as exc:
             status_code = 504 if exc.code == "timeout" else 409 if exc.code == "interrupted" else 422
@@ -222,7 +223,8 @@ def create_app(
             if target == "simulator":
                 if command not in SIMULATOR_COMMANDS:
                     raise HTTPException(status_code=400, detail="unsupported simulator command")
-                companion_control["active"] = False
+                if command != "blink":
+                    companion_control["active"] = False
                 return {"target": target, "result": robot.command(command, **payload)}
             if target == "esp32":
                 if command not in SAFE_COMMANDS:

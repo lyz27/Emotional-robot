@@ -19,7 +19,7 @@
     .card { border:1px solid var(--line); border-radius:18px; padding:17px; background:linear-gradient(155deg,#142736ed,#0c1822ed); box-shadow:0 18px 48px #0005; }
     .stage { min-height:400px; display:grid; place-items:center; perspective:800px; overflow:hidden; position:relative; border-radius:15px; background:radial-gradient(circle at 50% 45%,#1b3b50 0,#0c1a24 60%,#081118 100%); }
     .stage::after { content:""; position:absolute; inset:auto 12% 7%; height:25px; background:#0007; filter:blur(13px); border-radius:50%; }
-    .head { width:min(390px,85%); aspect-ratio:1.35; display:grid; place-items:center; position:relative; z-index:1; border:1px solid #466278; border-radius:42% 42% 38% 38%; background:linear-gradient(145deg,#233d50,#0e1e2a); box-shadow:inset 0 0 45px #5fbfff12,0 25px 45px #0008; transform-style:preserve-3d; transition:transform .22s ease; }
+    .head { width:min(390px,85%); aspect-ratio:1.35; display:grid; place-items:center; position:relative; z-index:1; border:1px solid #466278; border-radius:42% 42% 38% 38%; background:linear-gradient(145deg,#233d50,#0e1e2a); box-shadow:inset 0 0 45px #5fbfff12,0 25px 45px #0008; transform-style:preserve-3d; transition:transform .7s ease; }
     .face { width:78%; display:flex; align-items:center; justify-content:space-between; gap:32px; } .eye-wrap { width:46%; position:relative; padding-top:18px; }
     .brow { width:72%; height:9px; margin:0 auto 17px; border-radius:99px; background:#aee1ff; opacity:.55; transition:transform .28s,opacity .28s; }
     .eye { height:104px; position:relative; overflow:hidden; border:4px solid #b9e8ff; border-radius:48%; background:#dff6ff; box-shadow:0 0 30px #5bbfff55,inset 0 -13px 25px #6db6d555; transition:height .13s,border-radius .25s,transform .25s; }
@@ -136,6 +136,13 @@
   const emotionNames = {calm:"平静",happy:"开心",curious:"好奇",sleepy:"困倦",worried:"担忧",thinking:"思考"};
   const face = $("face"), head = $("head"), events = $("events");
   let state = null, speechStatus = null, companionStatus = null, lastSequence = -1, facePosition = {x:0,y:0}, refreshing = false;
+  let presentation = null, pendingSpeech = false, audioCompanion = null, requestEpoch = 0;
+  function presentReply(companion, speaking=false){
+    if(!companion?.action)return;
+    presentation={action:companion.action,emotion:companion.emotion,until:speaking?Infinity:performance.now()+5000};
+    if(state)renderSimulation(state);
+  }
+  function endPresentation(){presentation=null;pendingSpeech=false;audioCompanion=null;if(state)renderSimulation(state);}
 
   async function command(name, payload = {}, target = "simulator") {
     const response = await fetch(`/api/control/${name}`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({target,...payload})});
@@ -144,7 +151,11 @@
   function blinkVisual() { face.classList.add("blink"); setTimeout(() => face.classList.remove("blink"), 150); }
   function setRange(id,value,digits,suffix="") { $(id).value=value; $(`${id}Out`).textContent=`${Number(value).toFixed(digits)}${suffix}`; }
   function renderSimulation(sim) {
-    state=sim; face.className=`face ${sim.emotion}`; document.documentElement.style.setProperty("--gx",`${sim.gaze.x*28}px`); document.documentElement.style.setProperty("--gy",`${sim.gaze.y*22}px`); head.style.transform=`rotateY(${sim.neck.yaw}deg) rotateX(${-sim.neck.pitch}deg)`;
+    state=sim;
+    if(presentation&&performance.now()>presentation.until)presentation=null;
+    if(pendingSpeech)sim={...sim,emotion:"calm",gaze:{x:0,y:0},neck:{yaw:0,pitch:0}};
+    else if(presentation){const a=presentation.action;const strength=Math.max(.25,Math.min(.7,presentation.emotion?.intensity||.35));sim={...sim,emotion:a.emotion,gaze:{x:a.gaze.x*strength,y:a.gaze.y*strength},neck:{yaw:a.neck.yaw*strength,pitch:a.neck.pitch*strength}};}
+    const blinking=face.classList.contains("blink");face.className=`face ${sim.emotion}${blinking?" blink":""}`; document.documentElement.style.setProperty("--gx",`${sim.gaze.x*28}px`); document.documentElement.style.setProperty("--gy",`${sim.gaze.y*22}px`); head.style.transform=`rotateY(${sim.neck.yaw}deg) rotateX(${-sim.neck.pitch}deg)`;
     $("emotionLabel").textContent=`${sim.emotion.toUpperCase()} · ${emotionNames[sim.emotion]}`; document.querySelectorAll("[data-emotion]").forEach(b=>b.classList.toggle("active",b.dataset.emotion===sim.emotion));
     setRange("gazeX",sim.gaze.x,2); setRange("gazeY",sim.gaze.y,2); setRange("neckYaw",sim.neck.yaw,0,"°"); setRange("neckPitch",sim.neck.pitch,0,"°");
     $("touch").checked=sim.sensors.touch; $("touchText").textContent=sim.sensors.touch?"已触摸":"未触摸"; $("distance").value=sim.sensors.distance_cm; $("distanceText").textContent=`${sim.sensors.distance_cm} cm`; $("faceDetected").checked=sim.sensors.face_detected; $("faceText").textContent=sim.sensors.face_detected?"是":"否"; $("motor").value=sim.motor; $("motorText").textContent=sim.motor;
@@ -161,14 +172,34 @@
   async function refresh(){if(refreshing)return;refreshing=true;try{const response=await fetch("/api/robot",{cache:"no-store"});if(!response.ok)throw new Error(response.statusText);const data=await response.json();renderSimulation(data.simulation);renderDevice(data.device);renderSpeech(data.speech);renderCompanion(data.companion);}catch(error){$("deviceText").textContent="调试服务离线";}finally{refreshing=false;}}
 
   function speechError(body,statusText){const detail=body?.detail;return typeof detail==="object"?detail.message||JSON.stringify(detail):detail||statusText;}
-  function showSpeechResult(data){$("transcript").textContent=data.transcript||"（仅语音合成）";$("speechReply").textContent=data.reply||data.text;$("replyAudio").src=`${data.audio_url}?t=${Date.now()}`;$("speechResult").classList.add("visible");const t=data.timings||{tts_ms:data.tts_ms};$("speechMetrics").textContent=`离线处理 · 输入 ${data.input_seconds??"—"}s · 语音 ${data.speech_seconds??"—"}s · 输出 ${data.output_seconds}s · ${Object.entries(t).map(([k,v])=>`${k}=${v}ms`).join(" · ")}`;$("replyAudio").play().catch(()=>{});}
-  $("processSpeech").addEventListener("click",async()=>{const file=$("speechFile").files[0];if(!file){alert("请先选择 WAV 录音文件");return;}$("processSpeech").disabled=true;$("speechState").textContent="正在执行 VAD、中文识别、陪伴对话和语音合成…";const data=new FormData();data.append("audio",file);data.append("reply",$("replyOverride").value);data.append("session_id","browser");data.append("remember",$("rememberChat").checked);try{const response=await fetch("/api/speech/process",{method:"POST",body:data});const body=await response.json();if(!response.ok)throw new Error(speechError(body,response.statusText));showSpeechResult(body);if(body.companion){appendChat("user",body.transcript);appendChat("robot",body.reply);await loadMemories();}}catch(error){alert(`语音处理失败：${error.message}`);}finally{await refresh();}});
+  function showSpeechResult(data){pendingSpeech=false;audioCompanion=data.companion||null;$("transcript").textContent=data.transcript||"（仅语音合成）";$("speechReply").textContent=data.reply||data.text;$("replyAudio").src=`${data.audio_url}?t=${Date.now()}`;$("speechResult").classList.add("visible");const t=data.timings||{tts_ms:data.tts_ms};$("speechMetrics").textContent=`处理完成 · 输入 ${data.input_seconds??"—"}s · 输出 ${data.output_seconds}s · ${Object.entries(t).map(([k,v])=>`${k}=${v}ms`).join(" · ")}`;$("replyAudio").play().catch(()=>{presentation=null;});}
+  $("replyAudio").addEventListener("playing",()=>presentReply(audioCompanion,true));
+  ["pause","ended","error"].forEach(name=>$("replyAudio").addEventListener(name,()=>{presentation=null;if(state)renderSimulation(state);}));
+  $("processSpeech").addEventListener("click",async()=>{const file=$("speechFile").files[0];if(!file){alert("请先选择 WAV 录音文件");return;}const epoch=++requestEpoch;$("replyAudio").pause();endPresentation();pendingSpeech=true;$("processSpeech").disabled=true;$("speechState").textContent="正在准备回复…";const data=new FormData();data.append("audio",file);data.append("reply",$("replyOverride").value);data.append("session_id","browser");data.append("remember",$("rememberChat").checked);try{const response=await fetch("/api/speech/process",{method:"POST",body:data});const body=await response.json();if(epoch!==requestEpoch)return;if(!response.ok)throw new Error(speechError(body,response.statusText));showSpeechResult(body);if(body.companion){appendChat("user",body.transcript);appendChat("robot",body.reply);await loadMemories();}}catch(error){if(epoch===requestEpoch){endPresentation();alert(`语音处理失败：${error.message}`);}}finally{await refresh();}});
   $("ttsButton").addEventListener("click",async()=>{const text=$("ttsText").value.trim();if(!text){alert("请输入需要合成的文字");return;}$("ttsButton").disabled=true;try{const response=await fetch("/api/speech/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text})});const body=await response.json();if(!response.ok)throw new Error(speechError(body,response.statusText));showSpeechResult(body);}catch(error){alert(`语音合成失败：${error.message}`);}finally{await refresh();}});
-  $("stopSpeech").addEventListener("click",async()=>{const player=$("replyAudio");player.pause();player.currentTime=0;await fetch("/api/speech/interrupt",{method:"POST"});});
+  $("stopSpeech").addEventListener("click",async()=>{++requestEpoch;const player=$("replyAudio");player.pause();player.currentTime=0;endPresentation();await fetch("/api/speech/interrupt",{method:"POST"});});
 
   function appendChat(role,text){const hint=$("chatLog").querySelector(".hint");if(hint)hint.remove();const item=document.createElement("div");item.className=`chat-message ${role}`;item.textContent=text;$("chatLog").appendChild(item);$("chatLog").scrollTop=$("chatLog").scrollHeight;}
   async function loadMemories(){const response=await fetch("/api/companion/memories",{cache:"no-store"});const body=await response.json();if(!response.ok)throw new Error(speechError(body,response.statusText));$("memoryCount").textContent=body.count;const labels={profile:"资料",preference:"喜好",event:"事件"};$("memoryList").innerHTML=body.items.length?body.items.map(item=>`<div class="memory-item"><div><small>${labels[item.kind]||escapeHtml(item.kind)} · ${escapeHtml(item.key)}</small><span>${escapeHtml(item.value)}</span></div><div class="memory-actions"><button class="small" data-edit-memory="${item.id}" data-memory-value="${encodeURIComponent(item.value)}">修改</button><button class="small danger" data-delete-memory="${item.id}">删除</button></div></div>`).join(""):'<div class="hint">暂无长期记忆</div>';}
-  async function sendChat(){const text=$("chatInput").value.trim();if(!text)return;$("sendChat").disabled=true;appendChat("user",text);$("chatInput").value="";try{const response=await fetch("/api/companion/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text,session_id:"browser",remember:$("rememberChat").checked})});const body=await response.json();if(!response.ok)throw new Error(speechError(body,response.statusText));appendChat("robot",body.reply);if($("speakChat").checked){const tts=await fetch("/api/speech/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:body.reply})});const audio=await tts.json();if(tts.ok)showSpeechResult(audio);}await loadMemories();await refresh();}catch(error){appendChat("robot",`处理失败：${error.message}`);}finally{$("sendChat").disabled=false;}}
+  async function sendChat(){
+    const text=$("chatInput").value.trim();if(!text)return;
+    const epoch=++requestEpoch,speak=$("speakChat").checked;
+    $("replyAudio").pause();endPresentation();pendingSpeech=speak;
+    $("sendChat").disabled=true;appendChat("user",text);$("chatInput").value="";
+    try{
+      const response=await fetch("/api/companion/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text,session_id:"browser",remember:$("rememberChat").checked,defer_expression:speak})});
+      const body=await response.json();if(epoch!==requestEpoch)return;
+      if(!response.ok)throw new Error(speechError(body,response.statusText));appendChat("robot",body.reply);
+      if(speak){
+        const tts=await fetch("/api/speech/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:body.reply})});
+        const audio=await tts.json();if(epoch!==requestEpoch)return;
+        if(!tts.ok)throw new Error(speechError(audio,tts.statusText));
+        showSpeechResult({...audio,companion:body});
+      }else{pendingSpeech=false;presentReply(body);}
+      await loadMemories();await refresh();
+    }catch(error){if(epoch===requestEpoch){endPresentation();appendChat("robot",`处理失败：${error.message}`);}}
+    finally{$("sendChat").disabled=false;}
+  }
   $("sendChat").addEventListener("click",sendChat);$("chatInput").addEventListener("keydown",event=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();sendChat();}});$("refreshMemories").addEventListener("click",loadMemories);
   $("memoryList").addEventListener("click",async event=>{const edit=event.target.closest("[data-edit-memory]");const remove=event.target.closest("[data-delete-memory]");if(edit){const value=prompt("修改记忆内容",decodeURIComponent(edit.dataset.memoryValue));if(value===null)return;const response=await fetch(`/api/companion/memories/${edit.dataset.editMemory}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({value})});if(!response.ok){const body=await response.json();alert(speechError(body,response.statusText));}await loadMemories();}if(remove&&confirm("删除这条记忆？")){await fetch(`/api/companion/memories/${remove.dataset.deleteMemory}`,{method:"DELETE"});await loadMemories();await refresh();}});
   $("clearMemories").addEventListener("click",async()=>{if(!confirm("确认清空全部长期记忆？此操作不能撤销。"))return;await fetch("/api/companion/memories",{method:"DELETE"});await loadMemories();await refresh();});
