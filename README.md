@@ -131,6 +131,18 @@ layers are offloaded to CUDA. The tested llama.cpp source revision is `e30ad80`.
 The official GGUF SHA-256 is
 `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5`.
 
+## Work space
+
+The root page is the work space: a persistent assistant sidebar, work conversation,
+tasks, notes, review and reminders. The original companion and hardware debug
+dashboard remains at `/debug`. Work data lives in `runtime/work.db`, separately
+from companion memory. Work-model suggestions require explicit confirmation via
+the task/note editor before becoming records.
+
+Reminders currently appear in the open browser and overdue reminders are shown
+on reopening; there is no phone push or background browser notification service.
+UI checks: `node tests/work_ui.cjs` and `node tests/dashboard_presentation.cjs`.
+
 ## Firmware
 
 ```bash
