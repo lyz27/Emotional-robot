@@ -8,7 +8,7 @@ function element(id) {
     value: '', checked: false, style: {setProperty(){}}, dataset:{}, handlers:{},
     className: '', classList:{add(){},remove(){},toggle(){},contains(){return false;}},
     addEventListener(name, fn){this.handlers[name]=fn;},
-    querySelector(){return null;}, appendChild(){}, pause(){}, play(){return Promise.resolve();},
+    querySelector(){return null;}, querySelectorAll(){return [];}, appendChild(){}, pause(){}, play(){return Promise.resolve();},
   });
   return elements.get(id);
 }
@@ -34,6 +34,7 @@ assert.equal(vm.runInContext('presentation',context),null);
 element('replyAudio').handlers.playing();
 vm.runInContext('renderSimulation(sim);',context);
 assert.match(element('face').className,/happy/); // polling cannot replace the speaking expression
+assert.equal(element('stage').dataset.emotion,'happy'); // atmosphere follows the displayed reply, not stale server mood
 assert.equal(appreciationAnimations,1); // one gesture at playback start, not every polling refresh
 element('replyAudio').handlers.pause();
 assert.equal(vm.runInContext('presentation',context),null);

@@ -19,6 +19,27 @@
     .card { border:1px solid var(--line); border-radius:18px; padding:17px; background:linear-gradient(155deg,#142736ed,#0c1822ed); box-shadow:0 18px 48px #0005; }
     .stage { min-height:400px; display:grid; place-items:center; perspective:800px; overflow:hidden; position:relative; border-radius:15px; background:radial-gradient(circle at 50% 45%,#1b3b50 0,#0c1a24 60%,#081118 100%); }
     .stage::after { content:""; position:absolute; inset:auto 12% 7%; height:25px; background:#0007; filter:blur(13px); border-radius:50%; }
+    .stage { --mood-color:#76c9ef; --mood-glow:#4ca6d233; transition:background .8s ease; }
+    .stage[data-emotion=happy] { --mood-color:#ffd580; --mood-glow:#ffb96b40; }
+    .stage[data-emotion=curious] { --mood-color:#8ee8db; --mood-glow:#4ed7bf30; }
+    .stage[data-emotion=sleepy] { --mood-color:#c7b1ff; --mood-glow:#9276e630; }
+    .stage[data-emotion=worried] { --mood-color:#93c7ff; --mood-glow:#7fa7e82a; }
+    .stage[data-emotion=thinking] { --mood-color:#f7d99f; --mood-glow:#e4b86e30; }
+    .mood-atmosphere { position:absolute; inset:0; pointer-events:none; z-index:2; color:var(--mood-color); }
+    .mood-aura { position:absolute; inset:5%; border-radius:50%; background:radial-gradient(ellipse,var(--mood-glow),transparent 68%); z-index:0; transition:background .8s; }
+    .mood-symbol { position:absolute; font:700 clamp(24px,4vw,40px)/1 ui-rounded,"Arial Rounded MT Bold",system-ui,sans-serif; text-shadow:0 0 22px var(--mood-glow); opacity:.85; animation:mood-drift 3.8s ease-in-out infinite; }
+    .mood-symbol:nth-child(1) { left:7%;top:18%;transform:rotate(-14deg); }
+    .mood-symbol:nth-child(2) { right:8%;top:12%;font-size:44px;animation-delay:-1.1s; }
+    .mood-symbol:nth-child(3) { right:5%;top:62%;font-size:27px;animation-delay:-2.2s; }
+    .mood-symbol:nth-child(4) { left:8%;top:71%;font-size:22px;animation-delay:-.7s; }
+    .mood-symbol:nth-child(5) { left:45%;top:6%;font-size:24px;animation-delay:-1.8s; }
+    .stage[data-emotion=happy] .mood-symbol:nth-child(3) { color:#ffa6c0; }
+    .stage[data-emotion=sleepy] .mood-symbol { letter-spacing:.06em; }
+    .stage[data-emotion=calm] .mood-symbol { opacity:.35;font-size:21px; }
+    .head::after { content:""; position:absolute; inset:62% 7% 15%; pointer-events:none; opacity:0; background:radial-gradient(ellipse at 12% 50%,#ff94ae88,transparent 20%),radial-gradient(ellipse at 88% 50%,#ff94ae88,transparent 20%); transition:opacity .6s; }
+    .stage[data-emotion=happy] .head::after { opacity:.9; }
+    @keyframes mood-drift { 0%,100% { translate:0 0;scale:.94; } 50% { translate:0 -11px;scale:1.08; } }
+    @media(prefers-reduced-motion:reduce) { .mood-symbol { animation:none; } .head { transition:none; } }
     .head { width:min(390px,85%); aspect-ratio:1.35; display:grid; place-items:center; position:relative; z-index:1; border:1px solid #466278; border-radius:42% 42% 38% 38%; background:linear-gradient(145deg,#233d50,#0e1e2a); box-shadow:inset 0 0 45px #5fbfff12,0 25px 45px #0008; transform-style:preserve-3d; transition:transform .7s ease; }
     .face { width:78%; display:flex; align-items:center; justify-content:space-between; gap:32px; } .eye-wrap { width:46%; position:relative; padding-top:18px; }
     .brow { width:72%; height:9px; margin:0 auto 17px; border-radius:99px; background:#aee1ff; opacity:.55; transition:transform .28s,opacity .28s; }
@@ -74,7 +95,7 @@
   </header>
   <div class="layout">
     <div class="stack">
-      <section class="card"><div id="stage" class="stage"><div id="head" class="head"><div id="face" class="face calm"><div class="eye-wrap"><div class="brow"></div><div class="eye"><div class="pupil"></div></div></div><div class="eye-wrap"><div class="brow"></div><div class="eye"><div class="pupil"></div></div></div></div></div><div id="emotionLabel" class="emotion-label">CALM · 平静</div></div></section>
+      <section class="card"><div id="stage" class="stage" data-emotion="calm"><div class="mood-aura" aria-hidden="true"></div><div id="moodAtmosphere" class="mood-atmosphere" aria-hidden="true"><span class="mood-symbol">✧</span><span class="mood-symbol">·</span><span class="mood-symbol">✧</span><span class="mood-symbol">·</span><span class="mood-symbol">◦</span></div><div id="head" class="head"><div id="face" class="face calm"><div class="eye-wrap"><div class="brow"></div><div class="eye"><div class="pupil"></div></div></div><div class="eye-wrap"><div class="brow"></div><div class="eye"><div class="pupil"></div></div></div></div></div><div id="emotionLabel" class="emotion-label">CALM · 平静</div></div></section>
       <section class="card">
         <h2>表情与动作</h2>
         <div id="emotionList" class="emotion-list"><button data-emotion="calm">平静</button><button data-emotion="happy">开心</button><button data-emotion="curious">好奇</button><button data-emotion="sleepy">困倦</button><button data-emotion="worried">担忧</button><button data-emotion="thinking">思考</button><button id="blinkButton">眨眼</button></div>
@@ -135,6 +156,13 @@
   const $ = id => document.getElementById(id);
   const emotionNames = {calm:"平静",happy:"开心",curious:"好奇",sleepy:"困倦",worried:"担忧",thinking:"思考"};
   const face = $("face"), head = $("head"), events = $("events");
+  const moodSymbols={calm:["✧","·","✧","·","◦"],happy:["✦","✧","♥","✦","♪"],curious:["?","?","✧","·","!"],sleepy:["z","Z","☾","·","z"],worried:["﹏","💧","·","﹏","·"],thinking:["·","···","✧","·","◦"]};
+  function renderAtmosphere(emotion){
+    if(!moodSymbols[emotion])emotion="calm";
+    if($("stage").dataset.emotion===emotion)return;
+    $("stage").dataset.emotion=emotion;
+    $("moodAtmosphere").querySelectorAll(".mood-symbol").forEach((symbol,i)=>{symbol.textContent=moodSymbols[emotion][i];});
+  }
   let state = null, speechStatus = null, companionStatus = null, lastSequence = -1, facePosition = {x:0,y:0}, refreshing = false;
   let presentation = null, pendingSpeech = false, audioCompanion = null, requestEpoch = 0;
   function presentReply(companion, speaking=false){
@@ -159,6 +187,7 @@
     if(pendingSpeech)sim={...sim,emotion:"calm",gaze:{x:0,y:0},neck:{yaw:0,pitch:0}};
     else if(presentation){const a=presentation.action;const strength=Math.max(.25,Math.min(.7,presentation.emotion?.intensity||.35));sim={...sim,emotion:a.emotion,gaze:{x:a.gaze.x*strength,y:a.gaze.y*strength},neck:{yaw:a.neck.yaw*strength,pitch:a.neck.pitch*strength}};}
     const blinking=face.classList.contains("blink");face.className=`face ${sim.emotion}${blinking?" blink":""}`; document.documentElement.style.setProperty("--gx",`${sim.gaze.x*28}px`); document.documentElement.style.setProperty("--gy",`${sim.gaze.y*22}px`); head.style.transform=`rotateY(${sim.neck.yaw}deg) rotateX(${-sim.neck.pitch}deg)`;
+    renderAtmosphere(sim.emotion);
     $("emotionLabel").textContent=`${sim.emotion.toUpperCase()} · ${emotionNames[sim.emotion]}`; document.querySelectorAll("[data-emotion]").forEach(b=>b.classList.toggle("active",b.dataset.emotion===sim.emotion));
     setRange("gazeX",sim.gaze.x,2); setRange("gazeY",sim.gaze.y,2); setRange("neckYaw",sim.neck.yaw,0,"°"); setRange("neckPitch",sim.neck.pitch,0,"°");
     $("touch").checked=sim.sensors.touch; $("touchText").textContent=sim.sensors.touch?"已触摸":"未触摸"; $("distance").value=sim.sensors.distance_cm; $("distanceText").textContent=`${sim.sensors.distance_cm} cm`; $("faceDetected").checked=sim.sensors.face_detected; $("faceText").textContent=sim.sensors.face_detected?"是":"否"; $("motor").value=sim.motor; $("motorText").textContent=sim.motor;
