@@ -155,6 +155,34 @@ result without creating another record. Reminder delivery remains browser-only.
 Live-model acceptance test: `python tests/agent_smoke.py` on the Jetson, using a
 temporary database that is discarded after the test.
 
+## Mac inbox sync
+
+The selected Mac folder is `/Users/lixizi/Documents/enmotion_robot`. A per-user
+LaunchAgent (`com.enmotion.folder-sync`) checks it every 30 seconds while the Mac
+is awake and logged in. UTF-8 `.txt`, `.md`, and `.markdown` files are imported
+into Jetson work notes; each file is limited to 100KB / 20,000 characters. Hidden
+files and symbolic links are ignored. Source-file deletions do not delete notes.
+
+Imports use body hashes, persistent revisions (`sync_versions`) and atomic SQLite
+transactions. If a note was edited in the browser, the next source update creates
+a new sync copy and preserves the browser edit. WorkSpace includes sync status.
+The Agent can search imported notes through its existing note tools.
+
+Mac configuration and cache are stored under `~/.config/enmotion-robot-sync/`;
+logs are in its `logs/` folder. The authentication token is kept in the private
+Mac config and Jetson `runtime/sync-token`, never in Git. Update the server address
+in the Mac config if the Jetson IP changes.
+
+Manual check:
+
+```bash
+.venv/bin/python -m enmotion_robot.folder_sync run --config /Users/lixizi/.config/enmotion-robot-sync/config.json
+```
+
+Reinstall the login task with the same command using `install` instead of `run`.
+This is a one-way file import; the work page is the shared interface for editing
+Jetson records. Imported files are not automatically turned into tasks.
+
 ## Firmware
 
 ```bash

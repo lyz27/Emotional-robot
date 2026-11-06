@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -17,6 +19,7 @@ from .supervisor import SAFE_COMMANDS, DeviceSupervisor
 from .simulator import SIMULATOR_COMMANDS, RobotSimulator
 from .speech import SpeechCoordinator, SpeechError, WavBytesSource
 from .work import WorkSpace
+from .folder_sync import import_note, heartbeat
 
 
 LOG = logging.getLogger("enmotion.web")
@@ -80,6 +83,31 @@ def create_app(
     @app.get("/api/work")
     def work_state():
         return work.snapshot()
+
+    def sync_authorize(authorization):
+        token_path = Path(os.getenv("ENMOTION_SYNC_TOKEN_FILE", STATIC_DIR.parents[2] / "runtime/sync-token"))
+        try:
+            token = token_path.read_text().strip()
+        except OSError:
+            raise HTTPException(503, "同步尚未配置")
+        if not token or not secrets.compare_digest(authorization or "", "Bearer " + token):
+            raise HTTPException(401, "同步认证失败")
+
+    @app.post("/api/sync/import")
+    def sync_import(payload: dict = Body(...), authorization: str | None = Header(default=None)):
+        sync_authorize(authorization)
+        try:
+            return import_note(work, payload)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.post("/api/sync/heartbeat")
+    def sync_heartbeat(payload: dict = Body(...), authorization: str | None = Header(default=None)):
+        sync_authorize(authorization)
+        try:
+            return heartbeat(work, payload)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @app.post("/api/work/chat")
     async def work_chat(payload: dict = Body(default_factory=dict)):

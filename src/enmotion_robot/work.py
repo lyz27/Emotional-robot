@@ -28,6 +28,8 @@ class WorkSpace:
                 CREATE TABLE IF NOT EXISTS agent_runs (
                     id TEXT PRIMARY KEY, result TEXT NOT NULL, created_at TEXT NOT NULL);
             """)
+            from .folder_sync import configure_tables
+            configure_tables(db)
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=10)
@@ -47,9 +49,12 @@ class WorkSpace:
         with self.connect() as db:
             tasks = [dict(r) for r in db.execute("SELECT * FROM tasks ORDER BY done, due IS NULL, due, id DESC")]
             notes = [dict(r) for r in db.execute("SELECT * FROM notes ORDER BY updated_at DESC")]
+            sync_client = db.execute("SELECT * FROM sync_clients ORDER BY last_seen DESC LIMIT 1").fetchone()
+            sync_count = db.execute("SELECT COUNT(*) FROM sync_sources").fetchone()[0]
         from .work_agent import available
         return {"tasks": tasks, "notes": notes, "messages": self.history.conversation_context("work")["messages"],
                 "agent_enabled": available() and bool(os.getenv("ENMOTION_DIALOGUE_URL", "").strip()),
+                "sync": {"file_count": sync_count, "client": dict(sync_client) if sync_client else None},
                 "reminder_delivery": "browser-open"}
 
     def save(self, kind, payload, item_id=None):
