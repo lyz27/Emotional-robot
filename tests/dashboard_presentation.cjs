@@ -25,13 +25,16 @@ const sim = {emotion:'worried',gaze:{x:0,y:0},neck:{yaw:0,pitch:0},
 context.sim=sim;
 vm.runInContext('pendingSpeech=true;renderSimulation(sim);',context);
 assert.match(element('face').className,/calm/);
-const reply={action:{emotion:'happy',gaze:{x:0,y:0},neck:{yaw:0,pitch:-4}},emotion:{intensity:.6}};
+let appreciationAnimations=0;
+element('face').animate=()=>{appreciationAnimations++;};
+const reply={action:{emotion:'happy',gaze:{x:0,y:0},neck:{yaw:0,pitch:-4},gesture:'appreciation'},emotion:{intensity:.6}};
 context.reply=reply;
 vm.runInContext('showSpeechResult({text:"恭喜",audio_url:"/audio/test.wav",companion:reply});',context);
 assert.equal(vm.runInContext('presentation',context),null);
 element('replyAudio').handlers.playing();
 vm.runInContext('renderSimulation(sim);',context);
 assert.match(element('face').className,/happy/); // polling cannot replace the speaking expression
+assert.equal(appreciationAnimations,1); // one gesture at playback start, not every polling refresh
 element('replyAudio').handlers.pause();
 assert.equal(vm.runInContext('presentation',context),null);
 console.log('playback expression timing: passed');

@@ -44,6 +44,19 @@ MEMORY_KINDS = frozenset({"profile", "preference", "event"})
 COMPANION_EMOTIONS = frozenset({"calm", "happy", "curious", "sleepy", "worried", "thinking"})
 
 
+def is_robot_compliment(text: str) -> bool:
+    """Recognize direct praise without treating negation or third-party praise as praise of us."""
+    for clause in re.split(r"[，。！？!?；;\n]", text):
+        clause = clause.strip()
+        if re.search(r"(?:不|没|哪|一点也不|并不|才不).{0,3}(?:可爱|好看|聪明|棒|厉害)", clause):
+            continue
+        if re.search(r"(?:你|机器人|enmotion)(?:真|真的|好|很|太|特别|超级|非常|也|是|个|有点|越来越|这么|那么|得|长|看起来|\s){0,10}(?:可爱|好看|聪明|棒|厉害)", clause, re.I):
+            return True
+        if re.fullmatch(r"(?:真|好|太|超级|非常)(?:可爱|好看|聪明|棒|厉害)[呀啊哦呢啦了～~]*", clause):
+            return True
+    return False
+
+
 class MemoryStore:
     """Small SQLite store with explicit CRUD and bounded session context."""
 
@@ -259,6 +272,8 @@ class EmotionStateMachine:
     @staticmethod
     def classify(text: str) -> tuple[str, float, str] | None:
         normalized = text.lower()
+        if is_robot_compliment(text):
+            return "happy", 0.65, "compliment"
         rules = (
             ("worried", 0.95, "safety", ("自杀", "不想活", "伤害自己", "结束生命", "跳楼")),
             ("worried", 0.82, "distress", ("难过", "伤心", "害怕", "焦虑", "不开心", "孤独", "压力")),
@@ -372,6 +387,8 @@ class LocalDialogueModel:
         preferences = self._values(memories, "preference")
         events = self._values(memories, "event")
         name = names[0] if names else ""
+        if is_robot_compliment(text):
+            return "谢谢你夸我呀，听到你这么说，我很开心。"
         if any(phrase in text for phrase in ("我叫什么", "我的名字", "记得我的名字")):
             return f"当然记得，你叫{name}。" if name else "你还没有告诉我名字；如果愿意，可以说“我叫小明”。"
         if any(phrase in text for phrase in ("我喜欢什么", "我的喜好", "记得我喜欢")):
@@ -456,6 +473,8 @@ class OpenAICompatibleDialogueModel:
             "安慰、倾听用calm或低强度worried；祝贺用happy；真正好奇探索用curious；"
             "思考分析用thinking；仅在机器人表达困意时用sleepy。不要因为句尾有问号就用curious，"
             "也不要因为用户累了就让机器人显得困倦。普通表达强度0.25到0.6，避免夸张。"
+            "用户直接夸你可爱、聪明或表达喜欢时，真诚接住夸奖，表情用happy；"
+            "不要用通用的‘我在这里陪你’把愉快互动变成安慰。"
         )
         messages = [{"role": "system", "content": system}]
         messages.extend(
@@ -640,6 +659,8 @@ class CompanionCore:
         expression_name, expression_intensity = emotion.name, emotion.intensity
         if safety["urgent"]:
             expression_name, expression_intensity = "worried", 0.6
+        elif safety["category"] == "normal" and is_robot_compliment(text):
+            expression_name, expression_intensity = "happy", 0.65
         elif any(cue in reply for cue in ("恭喜", "替你开心", "值得庆祝", "太好了")):
             expression_name, expression_intensity = "happy", 0.6
         elif any(cue in reply for cue in ("陪着你", "听你说", "慢慢来", "不太好受", "辛苦了", "我在这里")):
@@ -649,12 +670,15 @@ class CompanionCore:
         emotion = self.emotion.set_from_model(expression_name, expression_intensity)
         if allow_store:
             self.store.add_exchange(session_id, text, reply)
+        action = _action_for(emotion)
+        if safety["category"] == "normal" and is_robot_compliment(text):
+            action["gesture"] = "appreciation"
         return {
             "ok": True,
             "session_id": session_id,
             "reply": reply,
             "emotion": asdict(emotion),
-            "action": _action_for(emotion),
+            "action": action,
             "stored_memories": stored,
             "memory_count": len(self.store.list_memories()),
             "remembered": allow_store,

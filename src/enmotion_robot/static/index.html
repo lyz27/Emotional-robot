@@ -141,6 +141,9 @@
     if(!companion?.action)return;
     presentation={action:companion.action,emotion:companion.emotion,until:speaking?Infinity:performance.now()+5000};
     if(state)renderSimulation(state);
+    if(companion.action.gesture==="appreciation"){
+      face.animate?.([{transform:"scale(1)"},{transform:"scale(1.055) translateY(-3px)",filter:"brightness(1.2)"},{transform:"scale(1)"}],{duration:950,easing:"ease-in-out"});
+    }
   }
   function endPresentation(){presentation=null;pendingSpeech=false;audioCompanion=null;if(state)renderSimulation(state);}
 

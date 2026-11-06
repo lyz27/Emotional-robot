@@ -7,6 +7,7 @@ from enmotion_robot.companion import (
     HybridDialogueModel,
     MemoryStore,
     OpenAICompatibleDialogueModel,
+    is_robot_compliment,
 )
 
 
@@ -68,6 +69,30 @@ def test_negated_happiness_is_distress_and_fatigue_gets_support(tmp_path: Path) 
     result = core(tmp_path).chat("我今天好累")
     assert result["emotion"]["name"] == "calm"
     assert "放松" in result["reply"]
+
+
+def test_compliment_is_happy_even_when_model_adds_generic_support(tmp_path):
+    class PraiseRemote:
+        last_emotion_signal = ("calm", 0.2)
+
+        def generate(self, text, **kwargs):
+            return "谢谢夸奖，我在这里陪你。"
+
+    mind = CompanionCore(database_path=tmp_path / "praise.db", provider=HybridDialogueModel(remote=PraiseRemote()))
+    result = mind.chat("你好可爱呀", remember=False)
+    assert result["emotion"]["name"] == "happy"
+    assert result["action"]["gesture"] == "appreciation"
+    assert result["action"]["blink"] is True
+    for text in ("你真聪明", "你太棒了", "好可爱啊", "你好可爱呀"):
+        assert is_robot_compliment(text)
+    for text in ("你不可爱", "你不太可爱", "我家猫好可爱", "他好可爱", "你家猫好可爱"):
+        assert not is_robot_compliment(text)
+
+
+def test_offline_compliment_is_acknowledged_before_greeting(tmp_path):
+    result = core(tmp_path).chat("你好可爱呀", remember=False)
+    assert "谢谢" in result["reply"]
+    assert result["emotion"]["name"] == "happy"
 
 
 def test_privacy_mode_does_not_store_content(tmp_path: Path) -> None:
