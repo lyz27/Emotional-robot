@@ -183,6 +183,25 @@ Reinstall the login task with the same command using `install` instead of `run`.
 This is a one-way file import; the work page is the shared interface for editing
 Jetson records. Imported files are not automatically turned into tasks.
 
+## Mac quick capture
+
+Run `bash scripts/install_quick_capture.sh` on the Mac to build and install the
+native menu bar app at `~/Applications/Enmotion 随手记.app`, a desktop shortcut,
+and login task `com.enmotion.quick-capture`. Requires Xcode command line tools.
+It reuses `~/.config/enmotion-robot-sync/config.json`; no new connection setup is
+needed on this Mac. The existing folder sync continues independently.
+
+Press **Control + Option + Space**, type work content or click **粘贴文字**, then
+press **Command + Return**. Escape hides the window. For example:
+“明天下午三点提醒我跟进客户报价” or “记一下：客户希望下周看到第一版方案”.
+The authenticated `/api/sync/capture` route delegates to the Jetson work agent.
+Responses show the agent's saved results or clarification questions. Only an
+explicit paste reads the clipboard. Draft text is saved locally in app preferences;
+failed requests retain their request ID for safe retries through `agent_runs`.
+The global shortcut uses Carbon hotkey registration, without accessibility or
+screen recording permission. If occupied, the menu bar entry remains available.
+Reminder delivery is still through the open work page, not native notifications.
+
 ## Firmware
 
 ```bash

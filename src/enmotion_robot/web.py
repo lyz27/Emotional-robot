@@ -116,6 +116,26 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    @app.post("/api/sync/capture")
+    async def quick_capture(payload: dict = Body(...), authorization: str | None = Header(default=None)):
+        sync_authorize(authorization)
+        text = payload.get("text")
+        request_id = payload.get("request_id")
+        if not isinstance(text, str) or not 1 <= len(text.strip()) <= 2200:
+            raise HTTPException(422, "请输入 1–2200 字的工作内容")
+        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 80:
+            raise HTTPException(422, "缺少有效的提交标识")
+        note = text.strip().startswith(("记一下", "笔记", "记录一下", "保存笔记", "保存工作笔记"))
+        instruction = (
+            "请调用 save_note 保存以下工作笔记，保留原意，不设置提醒：\n" if note else
+            "请办理这条随手记：工作事项建立待办，普通资料保存笔记；修改或完成按原意执行。不要编造时间。用户内容：\n"
+        )
+        prompt = instruction + text.strip()
+        try:
+            return await run_in_threadpool(work.chat, prompt, "chat", request_id)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
     @app.post("/api/work/{kind}")
     def work_create(kind: str, payload: dict = Body(default_factory=dict)):
         try:

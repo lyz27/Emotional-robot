@@ -60,3 +60,27 @@ def test_sync_endpoint_requires_token_and_rejects_traversal(tmp_path, monkeypatc
     assert client.post("/api/sync/import", headers=headers, json={**payload, "path": "../a.md"}).status_code == 422
     assert client.post("/api/sync/heartbeat", headers=headers, json={"scanned":1}).status_code == 200
     assert client.get("/api/work").json()["sync"]["file_count"] == 1
+
+
+def test_capture_auth_validation_and_retry_identity(tmp_path, monkeypatch):
+    token = tmp_path / "token"
+    token.write_text("test-key")
+    monkeypatch.setenv("ENMOTION_SYNC_TOKEN_FILE", str(token))
+    work = WorkSpace(tmp_path / "work.db")
+    calls = []
+    def chat(text, mode, request_id):
+        calls.append((text, mode, request_id))
+        return {"reply": "已保存"}
+    monkeypatch.setattr(work, "chat", chat)
+    client = TestClient(create_app(workspace=work, manage_supervisor=False))
+    payload = {"text": "明天下午三点跟进报价", "request_id": "capture-retry"}
+    headers = {"Authorization": "Bearer test-key"}
+    assert client.post("/api/sync/capture", json=payload).status_code == 401
+    for text in (None, {}, "", "x" * 2201):
+        assert client.post("/api/sync/capture", headers=headers, json={**payload, "text": text}).status_code == 422
+    assert client.post("/api/sync/capture", headers=headers, json={"text": "工作"}).status_code == 422
+    for _ in range(2):
+        assert client.post("/api/sync/capture", headers=headers, json=payload).json()["reply"] == "已保存"
+    assert calls[0] == calls[1]
+    assert calls[0][0].endswith(payload["text"])
+    assert calls[0][1:] == ("chat", "capture-retry")
