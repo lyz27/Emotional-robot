@@ -136,12 +136,24 @@ The official GGUF SHA-256 is
 The root page is the work space: a persistent assistant sidebar, work conversation,
 tasks, notes, review and reminders. The original companion and hardware debug
 dashboard remains at `/debug`. Work data lives in `runtime/work.db`, separately
-from companion memory. Work-model suggestions require explicit confirmation via
-the task/note editor before becoming records.
+from companion memory. Suggestions can be confirmed via the editor; with the
+Agent installed, explicit requests to save, create, update or complete records
+execute directly and return tool receipts in the conversation.
 
 Reminders currently appear in the open browser and overdue reminders are shown
 on reopening; there is no phone push or background browser notification service.
 UI checks: `node tests/work_ui.cjs` and `node tests/dashboard_presentation.cjs`.
+
+Install the work Agent with `uv sync --extra agent --extra speech --extra dev`
+(or install the `agent` project extra in the existing Jetson environment).
+Qwen-Agent 0.0.34 uses the existing local `ENMOTION_DIALOGUE_URL`; no additional
+model or cloud API is needed. Its only tool is `work_records`: list/search/read,
+create/update tasks and notes. It cannot delete records or run shell commands.
+Each request is bounded to three model calls and six tool operations. Execution
+receipts are persisted in `agent_runs`; a replayed `request_id` returns the saved
+result without creating another record. Reminder delivery remains browser-only.
+Live-model acceptance test: `python tests/agent_smoke.py` on the Jetson, using a
+temporary database that is discarded after the test.
 
 ## Firmware
 

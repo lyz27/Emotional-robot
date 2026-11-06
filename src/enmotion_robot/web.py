@@ -84,7 +84,7 @@ def create_app(
     @app.post("/api/work/chat")
     async def work_chat(payload: dict = Body(default_factory=dict)):
         try:
-            return await run_in_threadpool(work.chat, payload.get("text", ""), payload.get("mode", "chat"))
+            return await run_in_threadpool(work.chat, payload.get("text", ""), payload.get("mode", "chat"), payload.get("request_id"))
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 

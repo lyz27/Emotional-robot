@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,7 @@ class WorkSpace:
     def __init__(self, path: Path | None = None):
         self.path = path or Path(os.getenv("ENMOTION_WORK_DB", Path(__file__).resolve().parents[2] / "runtime/work.db"))
         self.history = MemoryStore(self.path, max_messages=8)
+        self.agent_lock = threading.Lock()
         with self.connect() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS tasks (
@@ -23,6 +25,8 @@ class WorkSpace:
                 CREATE TABLE IF NOT EXISTS notes (
                     id INTEGER PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL,
                     updated_at TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS agent_runs (
+                    id TEXT PRIMARY KEY, result TEXT NOT NULL, created_at TEXT NOT NULL);
             """)
 
     def connect(self):
@@ -43,7 +47,9 @@ class WorkSpace:
         with self.connect() as db:
             tasks = [dict(r) for r in db.execute("SELECT * FROM tasks ORDER BY done, due IS NULL, due, id DESC")]
             notes = [dict(r) for r in db.execute("SELECT * FROM notes ORDER BY updated_at DESC")]
+        from .work_agent import available
         return {"tasks": tasks, "notes": notes, "messages": self.history.conversation_context("work")["messages"],
+                "agent_enabled": available() and bool(os.getenv("ENMOTION_DIALOGUE_URL", "").strip()),
                 "reminder_delivery": "browser-open"}
 
     def save(self, kind, payload, item_id=None):
@@ -83,12 +89,30 @@ class WorkSpace:
         with self.connect() as db:
             return db.execute(f"DELETE FROM {kind} WHERE id=?", (item_id,)).rowcount > 0
 
-    def chat(self, text, mode="chat"):
+    def chat(self, text, mode="chat", request_id=None):
         text = str(text).strip()
         if not text or len(text) > 2500:
             raise ValueError("请输入 1～2500 字符，长笔记请分段整理")
         if mode not in {"chat", "breakdown", "review", "notes"}:
             raise ValueError("工作模式无效")
+        from .work_agent import available, run_agent
+        if available() and os.getenv("ENMOTION_DIALOGUE_URL", "").strip():
+            with self.agent_lock:
+                if request_id:
+                    if not isinstance(request_id, str) or len(request_id) > 80:
+                        raise ValueError("请求标识无效")
+                    with self.connect() as db:
+                        cached = db.execute("SELECT result FROM agent_runs WHERE id=?", (request_id,)).fetchone()
+                    if cached:
+                        record = json.loads(cached[0])
+                        if record["text"] != text or record["mode"] != mode:
+                            raise ValueError("请求标识已被其他消息使用")
+                        return record["result"]
+                result = run_agent(self, text, mode, request_id)
+                with self.connect() as db:
+                    db.execute("INSERT INTO agent_runs(id,result,created_at) VALUES(?,?,?)", (
+                        result["agent"]["run_id"], json.dumps({"text": text, "mode": mode, "result": result}, ensure_ascii=False), utc_now()))
+                return result
         snapshot = self.snapshot()
         tasks = [{"title": t["title"], "done": bool(t["done"]), "due": t["due"]} for t in snapshot["tasks"][:12]]
         instructions = {

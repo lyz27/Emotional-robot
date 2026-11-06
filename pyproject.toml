@@ -15,6 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+agent = ["qwen-agent==0.0.34", "soundfile>=0.13,<1", "tqdm>=4.67,<5", "python-dateutil>=2.9,<3"]
 speech = [
   "numpy>=1.24,<3",
   "sherpa-onnx>=1.12,<3",
