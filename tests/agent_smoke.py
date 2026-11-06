@@ -25,3 +25,10 @@ if __name__ == "__main__":
         result = run_agent(work, "查询工作笔记，找一下Agent验收会议里决定了什么？", "chat")
         print(json.dumps(result, ensure_ascii=False), flush=True)
         assert any(s["operation"] in ("search_notes", "read_note") and s["ok"] for s in result["agent"]["steps"])
+        result = run_agent(work, "明天下午三点确认供应商方案", "chat")
+        print(json.dumps(result, ensure_ascii=False), flush=True)
+        task = next(t for t in work.snapshot()["tasks"] if "供应商" in t["title"])
+        assert task["due"] is not None, "简短工作内容未创建带时间待办"
+        result = run_agent(work, "确认供应商方案改到后天上午十点", "chat")
+        print(json.dumps(result, ensure_ascii=False), flush=True)
+        assert next(t for t in work.snapshot()["tasks"] if t["id"] == task["id"])["due"] != task["due"]
