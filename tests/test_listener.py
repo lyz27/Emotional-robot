@@ -1,4 +1,4 @@
-from enmotion_robot.listener import wake_content, rms, Segmenter
+from enmotion_robot.listener import wake_content, rms, Segmenter, is_goodbye
 import array
 
 
@@ -37,3 +37,10 @@ def test_endpoint_preroll_and_noise_rejection():
     for _ in range(20):
         segment.accept(speech)
     assert segment.frames[:10] == [bytes(640)]*10
+
+
+def test_goodbye_is_local_intent_not_a_substring():
+    for text in ('再见','再见，小蓝！','拜拜','好了，先这样吧','不聊了','停止对话','嗯，好，再见了，谢谢','bye bye','退出'):
+        assert is_goodbye(text), text
+    for text in ('不要再见','我不想说再见','再见这首歌是谁唱的','解释停止对话是什么意思','你说再见时没有退出','我先这样安排明天的工作'):
+        assert not is_goodbye(text), text

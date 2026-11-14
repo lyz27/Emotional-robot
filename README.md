@@ -325,6 +325,17 @@ until endpointing, independent of that idle window and recognition latency.
 Endpointing uses 300ms pre-roll, 1.8s silence tolerance and a 60s safety cap, replacing
 the former 0.8s/12s cutoffs. Tune silence with `ENMOTION_END_SILENCE` if necessary.
 “停止对话” returns to waiting for the wake phrase.
+Plain “再见”, “拜拜”, “不聊了”, “先这样”, and addressed variants are now local
+end-session intents as well. Matching is anchored, so asking about a song called
+“再见” or saying “不要说再见” does not end the session. In listening mode, a
+dedicated short-command KWS stream can request an early check after 560ms silence;
+ASR must confirm an exact goodbye before ending. Rejected candidates retain the
+utterance buffer and ordinary 1.8s endpointing continues. The regular ASR path also
+recognizes these intents if KWS misses them. Goodbye, presence and identity replies
+are synthesized once into a persistent local clip cache at startup, removing LLM
+and per-request TTS from those hot paths. This is not millisecond end-to-end speech
+understanding: endpointing/ASR remain, and open chat still takes seconds.
+Physical acceptance: user confirmed plain “再见” exits and returns to waiting.
 SenseVoice still decodes complete questions, and Qwen/TTS still add response latency.
 Captions hide reply text during synthesis and appear at estimated audio onset;
 100ms status polling and a low-latency PulseAudio stream reduce the previous gap.

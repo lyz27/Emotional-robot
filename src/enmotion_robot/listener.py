@@ -35,6 +35,14 @@ def rms(samples):
     return math.sqrt(sum(x*x for x in samples) / max(1, len(samples)))
 
 
+def is_goodbye(text):
+    clean = re.sub(r'[\s，,。.!！?？、]', '', text).lower()
+    clean = re.sub(r'^(?:(?:好的|好了|好|那就|那么|那|嗯))+', '', clean)
+    clean = re.sub(r'(?:(?:谢谢|吧|啦|哦|了))+$', '', clean)
+    return clean in {'再见','再见小蓝','再见小兰','小蓝再见','小兰再见','拜拜','拜','bye',
+                     'byebye','不聊','不聊了','不想聊','不想聊了','先这样','结束对话','停止对话','退出','退出对话'}
+
+
 def api(path, payload):
     req = urllib.request.Request("http://127.0.0.1:8080" + path,
         data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
@@ -82,6 +90,28 @@ def play_audio(text, audio, emotion="calm", on_start=None):
 def speak(text, emotion="calm"):
     publish("thinking", "正在准备语音…", emotion)
     play_audio(text, api("/api/speech/tts", {"text": text}), emotion)
+
+
+CONTROL_REPLIES = {'goodbye': '再见。', 'present': '我在，请说。', 'identity': '我叫小蓝，是您的本地助手。'}
+
+
+def prepare_controls():
+    manifest = ROOT/'runtime/control-audio-v1.json'
+    try:
+        cache = json.loads(manifest.read_text())
+    except (OSError, ValueError):
+        cache = {}
+    for key, text in CONTROL_REPLIES.items():
+        path = ROOT/'runtime/audio'/Path(cache.get(key, {}).get('audio_url', '')).name
+        if not cache.get(key) or not path.is_file():
+            cache[key] = api('/api/speech/tts', {'text': text})
+    manifest.write_text(json.dumps(cache))
+    return cache
+
+
+def control_reply(key, cache):
+    # These clips are local and prepared at startup: no model or synthesis on the hot path.
+    play_audio(CONTROL_REPLIES[key], cache[key])
 
 
 def respond(text):
@@ -203,6 +233,17 @@ class WakeSpotter:
 
     def reset(self):
         self.stream = self.model.create_stream()
+        self.end_stream = self.model.create_stream('z ài j iàn @再见/b ài b ài @拜拜/t íng zh ǐ d uì h uà @停止对话')
+
+    def accept_end(self, raw):
+        import numpy as np
+        self.end_stream.accept_waveform(16000,np.frombuffer(raw,dtype=np.int16).astype(np.float32)/32768)
+        while self.model.is_ready(self.end_stream):
+            self.model.decode_stream(self.end_stream)
+            if self.model.get_result(self.end_stream):
+                self.model.reset_stream(self.end_stream)
+                return True
+        return False
 
     def accept(self, raw):
         import numpy as np
@@ -230,6 +271,7 @@ def main():
     engine = OfflineSpeechEngine(SpeechModelPaths(ROOT / "models"), num_threads=2)
     engine._get_recognizer()
     wake = WakeSpotter()
+    controls = prepare_controls()
     active_until = 0
     silence = float(os.getenv('ENMOTION_END_SILENCE', '1.8'))
     while True:
@@ -239,6 +281,7 @@ def main():
                 "--rate=16000", "--channels=1", "--latency-msec=60"], stdout=subprocess.PIPE)
             segment = Segmenter(silence=silence)
             heartbeat = 0
+            maybe_end = False
             last_idle_reset = time.monotonic()
             while True:
                 raw = capture.stdout.read(640)
@@ -264,7 +307,22 @@ def main():
                     continue
                 if now-heartbeat > .3:
                     publish('listening','我在听，您说完后稍停一下。','curious'); heartbeat=now
+                maybe_end = wake.accept_end(raw) or maybe_end
                 completed = segment.accept(raw)
+                if maybe_end and segment.frames and segment.quiet >= 28 and len(segment.frames) < 200:
+                    # Confirm the short intent with ASR: discussing "再见这首歌" must not exit.
+                    maybe_end = False
+                    early = array.array('h', b''.join(segment.frames))
+                    check = engine.recognize([x/32768 for x in early],16000)
+                    content = wake_content(check)
+                    if is_goodbye(content if content is not None else check):
+                        capture.terminate(); capture.wait(timeout=3)
+                        active_until = 0
+                        control_reply('goodbye', controls)
+                        wake.reset()
+                        publish('waiting','本轮已结束，说“嘿，小蓝”再次唤醒。')
+                        print(json.dumps({'stage':'local_control','intent':'goodbye','fast_endpoint':True}),flush=True)
+                        break
                 if completed is None or not completed:
                     continue
                 # Capture remains open until a complete utterance has been collected.
@@ -280,8 +338,17 @@ def main():
                 if not text.strip():
                     active_until=time.monotonic()+45
                     break
-                if any(word in text for word in ('停止对话','再见小蓝','再见小兰')):
-                    speak('收到，本轮对话结束。'); active_until=0
+                if is_goodbye(text):
+                    active_until=0
+                    control_reply('goodbye', controls)
+                    publish('waiting','本轮已结束，说“嘿，小蓝”再次唤醒。')
+                    print(json.dumps({'stage':'local_control','intent':'goodbye','fast_endpoint':False}),flush=True)
+                elif re.sub(r'[\s，,。.!！?？]', '', text) in {'在吗','你在吗','小蓝在吗','你还在吗'}:
+                    control_reply('present', controls)
+                    active_until=time.monotonic()+45
+                elif re.sub(r'[\s，,。.!！?？]', '', text) in {'你叫什么名字','你是谁','你叫什么'}:
+                    control_reply('identity', controls)
+                    active_until=time.monotonic()+45
                 else:
                     publish('thinking','正在整理回答…','thinking')
                     respond(text)
