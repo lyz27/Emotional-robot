@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Enmotion · Living presence</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,"Noto Sans CJK SC",sans-serif}*{box-sizing:border-box}body{margin:0;background:#050b14;color:#e5f6ff;overflow:hidden}canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:manipulation}header{position:fixed;top:6%;left:6%;right:6%;display:flex;justify-content:space-between;align-items:center;pointer-events:none;font-size:12px;letter-spacing:.22em;color:#8dabbc}b{font-weight:500;color:#d6eaf4}#status{letter-spacing:.08em}#status:before{content:'●';color:#8ff1d2;margin-right:9px}#status.off:before{color:#e9b47c}.caption{position:fixed;bottom:12%;width:100%;text-align:center;pointer-events:none;padding:0 14%;transition:opacity .6s}#line{font-size:clamp(16px,2.4vw,28px);font-weight:400;letter-spacing:.05em;line-height:1.7;margin:0;white-space:pre-line;max-height:22vh;overflow:hidden;text-shadow:0 2px 20px #000}#sub{font-size:11px;color:#7c9cae;letter-spacing:.18em;margin-top:14px}nav{position:fixed;bottom:4%;left:50%;transform:translateX(-50%);display:flex;gap:8px;opacity:.25;transition:opacity .3s}nav:hover,nav:focus-within{opacity:1}button,input{font:inherit}button{color:#b9d5e4;background:#122332c9;border:1px solid #3e627950;border-radius:100px;padding:10px 18px;cursor:pointer}button:hover{background:#25495a}dialog{width:min(520px,90vw);background:#10222fee;color:#e5f6ff;border:1px solid #426378;border-radius:24px;padding:28px;box-shadow:0 20px 100px #0009}dialog::backdrop{background:#02081099;backdrop-filter:blur(12px)}form{display:flex;gap:8px}input{min-width:0;flex:1;background:#06121c;color:white;border:1px solid #385267;padding:14px;border-radius:14px}#moods{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}small{color:#89a5b8;line-height:1.8}#close{float:right} @media(max-height:500px){header{top:4%}.caption{bottom:14%}nav{bottom:2%}#sub{display:none}}
+</style>
+<canvas id="scene" aria-label="机器人的动态表情"></canvas><header><b>✦ ENMOTION</b><span id="status">正在连接</span></header>
+<section class="caption"><p id="line">很高兴，又见到你。</p><div id="sub">A LITTLE PRESENCE, ALWAYS HERE</div></section>
+<nav><button id="talk">和我说说</button><button id="settings">表情剧场</button><button id="full" aria-label="全屏">⛶</button></nav>
+<dialog id="panel"><button id="close">关闭</button><h2>在这里，听你说。</h2><form id="chat"><input id="text" maxlength="1200" placeholder="今天有什么想分享的？" aria-label="对机器人说话" required><button id="send">发送</button></form><div id="moods"></div><small>点击脸颊会有回应。表情剧场仅在本屏预览，不驱动电机。<br>语音播放时按实际音量带动嘴形；文字回复不会假装正在说话。</small></dialog>
+<audio id="voice"></audio>
+<script>
+'use strict';
+const $=id=>document.getElementById(id),canvas=$('scene'),ctx=canvas.getContext('2d',{alpha:false});
+const moods={calm:{label:'安心陪伴',h:183,eye:1,smile:.45,brow:0,tilt:0,symbol:'✧'},happy:{label:'开心',h:165,eye:.52,smile:1,brow:-.2,tilt:-.07,symbol:'♥'},curious:{label:'好奇',h:195,eye:1.18,smile:.3,brow:.6,tilt:.09,symbol:'?'},sleepy:{label:'困困',h:253,eye:.28,smile:.1,brow:-.1,tilt:-.06,symbol:'z'},worried:{label:'有点担心',h:213,eye:.85,smile:-.65,brow:-.65,tilt:.04,symbol:'·'},thinking:{label:'认真思考',h:224,eye:.8,smile:0,brow:.4,tilt:.08,symbol:'✦'}};
+let mood='calm',previewUntil=0,online=false,fetching=false,busy=false,pointer={x:0,y:0,until:0},targetGaze={x:0,y:0},blinkAt=2,blinkStart=-10,lastBlink=-1,frame=0,lastTime=0,clock=0,energy=0,analyser,bins,audioContext,presenting=false;
+const state={...moods.calm,x:0,y:0,pop:0},velocity={};
+function spring(key,target,dt){let v=velocity[key]||0;v+=(target-state[key])*95*dt;v*=Math.exp(-16*dt);state[key]+=v*dt;velocity[key]=v;}
+function setMood(name,preview=false){if(!moods[name])return;mood=name;if(preview)previewUntil=performance.now()+9000;$('status').textContent=online?moods[name].label:'连接中 · 自主呼吸';}
+function resize(){const d=Math.min(devicePixelRatio||1,1.5);canvas.width=Math.round(innerWidth*d);canvas.height=Math.round(innerHeight*d)}addEventListener('resize',resize);resize();
+function glow(x,y,r,color){const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,color);g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill()}
+function stroke(path,width,color){ctx.beginPath();path();ctx.lineWidth=width;ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle=color;ctx.stroke()}
+function draw(ms){requestAnimationFrame(draw);if(document.hidden){lastTime=ms;return}const dt=Math.min((ms-(lastTime||ms))/1000,.035);lastTime=ms;clock+=dt;frame++;
+ const t=clock,desired=moods[mood];for(const k of ['h','eye','smile','brow','tilt'])spring(k,desired[k],dt);
+ const follow=performance.now()<pointer.until?pointer:targetGaze;spring('x',follow.x,dt);spring('y',follow.y,dt);spring('pop',0,dt);
+ if(t>blinkAt){blinkStart=t;blinkAt=t+2.8+Math.random()*4}const b=Math.max(0,1-Math.abs((t-blinkStart-.085)/.085));const open=Math.max(.055,state.eye*(1-b));
+ if(analyser&&!$('voice').paused){analyser.getByteTimeDomainData(bins);let sum=0;for(const v of bins)sum+=((v-128)/128)**2;energy+=(Math.min(1,Math.sqrt(sum/bins.length)*5)-energy)*.4}else energy*=.8;
+ const w=canvas.width,h=canvas.height;ctx.fillStyle='#050b14';ctx.fillRect(0,0,w,h);const s=Math.min(w/1000,h/690);ctx.save();ctx.translate(w/2,h*.43);ctx.scale(s,s);
+ const hue=state.h;glow(0,20,430,`hsla(${hue},75%,50%,.085)`);glow(-210,-100,250,'#7d8df00a');
+ // Distant orbital dust: deterministic motion, no DOM allocations per frame.
+ for(let i=0;i<26;i++){const a=i*2.399+t*(.015+i%3*.006),r=245+(i%6)*25;ctx.globalAlpha=.12+(Math.sin(t+i)+1)*.08;ctx.fillStyle=`hsl(${hue},55%,80%)`;ctx.beginPath();ctx.arc(Math.cos(a)*r,Math.sin(a)*r*.62,1+i%2,0,7);ctx.fill()}ctx.globalAlpha=1;
+ ctx.translate(state.x*16,Math.sin(t*1.45)*5+state.y*10-state.pop*10);ctx.rotate(state.tilt+Math.sin(t*.65)*.012);
+ const breath=1+Math.sin(t*1.45)*.012+state.pop*.025;ctx.scale(breath,breath);
+ // A softly lit, sculpted glass face with an inner bezel.
+ const shell=ctx.createLinearGradient(-300,-180,270,200);shell.addColorStop(0,'#203745');shell.addColorStop(.4,'#0b1a27');shell.addColorStop(1,'#111f30');
+ ctx.beginPath();ctx.roundRect(-295,-186,590,359,128);ctx.fillStyle=shell;ctx.fill();ctx.strokeStyle='#8cb9d52b';ctx.lineWidth=1.5;ctx.stroke();
+ ctx.beginPath();ctx.roundRect(-279,-171,558,327,116);ctx.fillStyle='#06131e';ctx.fill();ctx.strokeStyle='#597f9320';ctx.stroke();
+ glow(-160,-115,140,`hsla(${hue},70%,60%,.07)`);glow(160,110,150,`hsla(${hue},60%,60%,.045)`);
+ for(const side of [-1,1]){ctx.save();ctx.translate(side*133+state.x*19,state.y*15);const asym=mood==='curious'&&side===1?1.14:1;
+  const ew=69,eh=65*open*asym;glow(0,0,98,`hsla(${hue},95%,65%,.09)`);
+  const eye=ctx.createLinearGradient(0,-eh,0,eh);eye.addColorStop(0,`hsl(${hue},85%,88%)`);eye.addColorStop(.6,`hsl(${hue},87%,67%)`);eye.addColorStop(1,`hsl(${hue+15},82%,47%)`);
+  ctx.fillStyle=eye;ctx.beginPath();ctx.roundRect(-ew,-eh,ew*2,eh*2,Math.min(ew,eh));ctx.fill();
+  if(open>.3){ctx.save();ctx.beginPath();ctx.roundRect(-ew,-eh,ew*2,eh*2,Math.min(ew,eh));ctx.clip();ctx.fillStyle='#051720';ctx.beginPath();ctx.ellipse(state.x*12,4+state.y*8,24,Math.max(6,eh*.63),0,0,7);ctx.fill();ctx.fillStyle='#efffff';ctx.beginPath();ctx.ellipse(-22+state.x*8,-eh*.45,14,Math.max(2,eh*.12),-.3,0,7);ctx.fill();ctx.globalAlpha=.45;ctx.beginPath();ctx.arc(24,eh*.4,4,0,7);ctx.fill();ctx.restore()}
+  const brow=state.brow*(side===1?1:-1);stroke(()=>{ctx.moveTo(-45,-93+brow*17);ctx.quadraticCurveTo(0,-106-Math.abs(state.brow)*9,45,-93-brow*17)},5,`hsla(${hue},70%,80%,.48)`);
+  glow(side*35,91,46,`rgba(255,132,172,${.035+Math.max(0,state.smile)*.12})`);ctx.restore();
+ }
+ const m=state.smile,mouthY=83;stroke(()=>{ctx.moveTo(-33,mouthY);ctx.quadraticCurveTo(0,mouthY+m*38,33,mouthY)},5,`hsl(${hue},65%,80%)`);
+ if(energy>.045){ctx.fillStyle=`hsl(${hue},70%,78%)`;ctx.beginPath();ctx.ellipse(0,mouthY+9,16+energy*14,5+energy*28,0,0,7);ctx.fill();ctx.fillStyle='#07202a';ctx.beginPath();ctx.ellipse(0,mouthY+7,11+energy*12,2+energy*21,0,0,7);ctx.fill()}
+ // Emotion accents orbit the face rather than replacing its expression.
+ if(mood!=='calm'){ctx.font='32px system-ui';ctx.textAlign='center';for(let i=0;i<3;i++){ctx.globalAlpha=.45+Math.sin(t*2+i)*.2;ctx.fillStyle=`hsl(${hue},75%,80%)`;ctx.fillText(desired.symbol,[-338,332,265][i],[-95,-145,140][i]+Math.sin(t*1.7+i)*12)}ctx.globalAlpha=1}
+ ctx.restore();
+}requestAnimationFrame(draw);
+canvas.addEventListener('pointermove',e=>{pointer={x:(e.clientX/innerWidth-.5)*1.6,y:(e.clientY/innerHeight-.45)*1.3,until:performance.now()+1800}});
+canvas.addEventListener('pointerdown',()=>{state.pop=1;setMood('happy',true);$('line').textContent='嗯，我在呢。';blinkStart=clock});
+async function json(url,body){const r=await fetch(url,{cache:'no-store',...(body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})});const v=await r.json();if(!r.ok)throw Error(typeof v.detail==='string'?v.detail:'服务暂时不可用');return v}
+async function refresh(){if(fetching)return;fetching=true;try{const data=await json('/api/robot');online=true;$('status').classList.remove('off');if(!busy&&!presenting&&performance.now()>previewUntil){setMood(data.simulation.emotion);targetGaze=data.simulation.gaze||{x:0,y:0}}if(data.simulation.blink_count!==lastBlink){if(lastBlink>=0)blinkStart=clock;lastBlink=data.simulation.blink_count}}catch(e){online=false;$('status').textContent='暂时离线 · 我还在这里';$('status').classList.add('off')}finally{fetching=false}}
+function connectAudio(){if(audioContext)return;audioContext=new AudioContext();analyser=audioContext.createAnalyser();analyser.fftSize=256;bins=new Uint8Array(analyser.fftSize);audioContext.createMediaElementSource($('voice')).connect(analyser);analyser.connect(audioContext.destination)}
+$('chat').onsubmit=async e=>{e.preventDefault();if(busy)return;const text=$('text').value.trim();if(!text)return;busy=true;$('send').disabled=true;$('panel').close();$('voice').pause();presenting=false;connectAudio();audioContext.resume().catch(()=>{});setMood('thinking');$('line').textContent='让我想一想…';try{const result=await json('/api/companion/chat',{text,session_id:'browser',defer_expression:true});$('line').textContent=result.reply;$('text').value='';setMood(result.action?.emotion||'calm',true);try{const speech=await json('/api/speech/tts',{text:result.reply});$('voice').src=speech.audio_url;presenting=true;await $('voice').play()}catch(e){presenting=false;$('sub').textContent='文字回复 · 语音暂不可用'}}catch(e){$('line').textContent='这次没有听清，愿意再说一次吗？';$('sub').textContent=e.message;setMood('worried',true)}finally{busy=false;$('send').disabled=false}};
+$('voice').onended=()=>{presenting=false;previewUntil=performance.now()+3500};$('voice').onerror=()=>{presenting=false};
+for(const [name,m]of Object.entries(moods)){const b=document.createElement('button');b.textContent=m.label;b.onclick=()=>{setMood(name,true);$('line').textContent={calm:'慢慢来，我陪着你。',happy:'见到你，心情都亮起来了。',curious:'然后呢？我想听听。',sleepy:'今天辛苦了，休息一下吧。',worried:'没关系，我们一起慢慢理清。',thinking:'给我一点时间，让想法连起来。'}[name];$('panel').close()};$('moods').append(b)}
+$('talk').onclick=()=>{$('panel').showModal();$('text').focus()};$('settings').onclick=()=>$('panel').showModal();$('close').onclick=()=>$('panel').close();$('full').onclick=()=>{if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(()=>{});else document.exitFullscreen()};
+refresh();setInterval(refresh,1200);
+let sampleFrame=0,sampleTime=performance.now();setInterval(()=>{const now=performance.now(),fps=(frame-sampleFrame)*1000/(now-sampleTime);sampleFrame=frame;sampleTime=now;if(!document.hidden)json('/api/display',{fps:Math.round(fps*10)/10,width:innerWidth,height:innerHeight}).catch(()=>{})},10000);
+</script></html>

@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import Body, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, Header, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -79,6 +79,30 @@ def create_app(
     @app.get("/debug", include_in_schema=False)
     def debug_page():
         return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store"})
+
+    @app.get("/face", include_in_schema=False)
+    def face_page():
+        return FileResponse(STATIC_DIR / "face.html", headers={"Cache-Control": "no-store"})
+
+    display_metrics = {}
+
+    @app.get("/api/display")
+    def display_status():
+        return display_metrics
+
+    @app.post("/api/display")
+    def display_heartbeat(request: Request, payload: dict = Body(...)):
+        if request.client.host not in {"127.0.0.1", "::1"}:
+            raise HTTPException(403, "仅接受本机屏幕状态")
+        from datetime import datetime, timezone
+        values = {}
+        for key, maximum in (("fps", 240), ("width", 10000), ("height", 10000)):
+            value = payload.get(key)
+            if type(value) not in (int, float) or not 0 <= value <= maximum:
+                raise HTTPException(422, "屏幕指标无效")
+            values[key] = value
+        display_metrics.update(**values, at=datetime.now(timezone.utc).isoformat())
+        return {"ok": True}
 
     @app.get("/api/work")
     def work_state():

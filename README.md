@@ -223,7 +223,29 @@ Native diagnostic commands on the installed executable: `--check-layout`
 Live-model acceptance: `python tests/capture_smoke.py` on the Jetson; it uses a
 disposable database and never modifies the user's tasks or notes.
 
-## Firmware
+## Robot screen
+
+`/face` is the dedicated full-screen companion display (the work page and `/debug`
+remain available). It uses a resolution-capped Canvas renderer, time-based springs,
+procedural eyes, pupils, brows, breathing, blink scheduling and mood accents.
+Touch previews are local and never drive motors. Live simulator emotion and gaze
+are polled independently of animation. Replies use the existing companion and TTS
+APIs; mouth motion follows actual audio RMS rather than a fake speaking timer.
+`GET /api/display` exposes the last local display's ten-second frame-rate sample;
+this measures animation callbacks, not guaranteed GPU presentation timing.
+
+On the Jetson, `sudo bash deploy/install-display.sh lyz` configures GDM automatic
+login, disables idle locking/blanking for this desktop, and launches a dedicated
+kiosk browser after the service becomes available. This intentionally makes the
+robot desktop accessible without a login password. Original GDM config is backed
+up as `/etc/gdm3/custom.conf.before-enmotion`. Remove
+`~/.config/autostart/enmotion-display.desktop` and restore that backup to undo.
+The tested screen is 1024×600 at 60Hz. This board's Chromium Snap cannot launch
+because of snap-confine capability errors; use the official Mozilla Linux ARM64
+archive extracted into `~/.local/opt/firefox/`. The launcher prefers that native
+Firefox and retains its browser sandbox. Restart GDM or reboot after installation.
+
+## Firmware build
 
 ```bash
 cd firmware/esp32_s3
