@@ -248,8 +248,10 @@ Physical acceptance: user confirmed wake acknowledgement and live conversation.
 UGREEN CM797 hardware acceptance: USB camera takes a 1280×720 MJPEG frame;
 `UGREEN Camera Audio` exposes both capture and playback, independently of HDMI.
 Run `bash deploy/configure-ugreen.sh --install` as the desktop user to retain the
-selected audio routes at login. The verified audible setting is PulseAudio 63%
-and ALSA `Audio` / PCM 25%, unmuted. Lower software volumes were accepted by the
+selected audio routes at login. Initial audible verification used PulseAudio 63%
+and ALSA `Audio` / PCM 25%, unmuted. The user subsequently requested louder replies;
+the persistent default is now PulseAudio 80%, with PCM unmuted and no fixed lower
+hardware volume overriding it. Lower software volumes were accepted by the
 driver but were inaudible in the physical test. The setup uses stable device names
 rather than card numbers. Temporary microphone tests remain private to the robot's
 `runtime/hardware-test` directory; these are not included in Git. Hardware setup

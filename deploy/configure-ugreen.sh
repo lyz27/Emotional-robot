@@ -23,9 +23,9 @@ for attempt in {1..30}; do
   pactl set-default-source "$source"
   pactl set-sink-mute "$sink" 0
   pactl set-source-mute "$source" 0
-  pactl set-sink-volume "$sink" 63%
+  pactl set-sink-volume "$sink" 80%
   # CM797 exposes a hardware PCM control whose low settings produce no audible output.
-  amixer -c Audio sset PCM 25% unmute >/dev/null
+  amixer -c Audio sset PCM unmute >/dev/null
   exit 0
  fi
  sleep 1
