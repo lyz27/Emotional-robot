@@ -1,0 +1,19 @@
+[Unit]
+Description=Enmotion on-demand local models (one resident model)
+After=network.target
+Before=enmotion-runtime.service
+
+[Service]
+User=lyz
+Group=lyz
+WorkingDirectory=/home/lyz/llama.cpp
+Environment=GGML_CUDA_ENABLE_UNIFIED_MEMORY=1
+ExecStart=/home/lyz/llama.cpp/build/bin/llama-server --models-preset /home/lyz/enmotion_robot/deploy/local-models.ini --models-max 1 --host 127.0.0.1 --port 8081 --no-webui
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=180
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

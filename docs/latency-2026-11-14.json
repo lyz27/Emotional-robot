@@ -1,0 +1,104 @@
+{
+  "date": "2026-11-14",
+  "device": "Jetson Orin Nano Super 8GB",
+  "measurement": "text request to first sentence audio file ready; excludes endpointing, ASR and speaker latency",
+  "limitations": "Three prompts, generated wording differs; no broad performance or quality guarantee. 1.7B failed work-tool acceptance; production uses 4B for work, one resident model at a time.",
+  "benchmarks": {
+    "latency-4b": {
+      "label": "Qwen3-4B-Q4_K_M",
+      "results": [
+        {
+          "question": "我今天有点累，简单说两句。",
+          "first_sentence_seconds": 2.588,
+          "first_audio_ready_seconds": 4.073,
+          "full_model_seconds": 4.689,
+          "reply": "您需要休息一下，小蓝在这里陪着您。",
+          "sentences": 2,
+          "all_audio_ready_seconds": 5.619
+        },
+        {
+          "question": "准备一个明天演示的方案，简短说出两步。",
+          "first_sentence_seconds": 3.105,
+          "first_audio_ready_seconds": 6.309,
+          "full_model_seconds": 5.653,
+          "reply": "明天的演示方案需要先明确核心目标和关键数据，然后聚焦于最能体现价值的两个亮点进行展示。",
+          "sentences": 2,
+          "all_audio_ready_seconds": 9.408
+        },
+        {
+          "question": "你现在能查到我这里的实时天气吗？",
+          "first_sentence_seconds": 2.566,
+          "first_audio_ready_seconds": 3.858,
+          "full_model_seconds": 4.676,
+          "reply": "目前没有联网功能，无法提供实时天气信息。",
+          "sentences": 2,
+          "all_audio_ready_seconds": 5.84
+        }
+      ]
+    },
+    "latency-router-final": {
+      "label": "Qwen3-1.7B-router-compact",
+      "results": [
+        {
+          "question": "我今天有点累，简单说两句。",
+          "first_sentence_seconds": 1.177,
+          "first_audio_ready_seconds": 2.575,
+          "full_model_seconds": 2.064,
+          "reply": "理解，今日劳累，请适当休息。",
+          "sentences": 2,
+          "all_audio_ready_seconds": 4.233
+        },
+        {
+          "question": "准备一个明天演示的方案，简短说出两步。",
+          "first_sentence_seconds": 1.229,
+          "first_audio_ready_seconds": 2.998,
+          "full_model_seconds": 2.058,
+          "reply": "明确目标与核心内容，梳理逻辑结构",
+          "sentences": 2,
+          "all_audio_ready_seconds": 4.095
+        },
+        {
+          "question": "你现在能查到我这里的实时天气吗？",
+          "first_sentence_seconds": 0.823,
+          "first_audio_ready_seconds": 2.818,
+          "full_model_seconds": 1.696,
+          "reply": "目前无法查询实时天气信息，请稍后再试。",
+          "sentences": 2,
+          "all_audio_ready_seconds": 4.354
+        }
+      ]
+    },
+    "latency-1.7b": {
+      "label": "Qwen3-1.7B-Q4_K_M",
+      "results": [
+        {
+          "question": "我今天有点累，简单说两句。",
+          "first_sentence_seconds": 1.462,
+          "first_audio_ready_seconds": 3.764,
+          "full_model_seconds": 2.99,
+          "reply": "好的，累了就休息一下，需要我帮你泡杯茶吗？",
+          "sentences": 2,
+          "all_audio_ready_seconds": 5.341
+        },
+        {
+          "question": "准备一个明天演示的方案，简短说出两步。",
+          "first_sentence_seconds": 1.255,
+          "first_audio_ready_seconds": 3.076,
+          "full_model_seconds": 2.383,
+          "reply": "1. 确定演示主题和目标；2. 准备演示材料和设备。",
+          "sentences": 2,
+          "all_audio_ready_seconds": 4.93
+        },
+        {
+          "question": "你现在能查到我这里的实时天气吗？",
+          "first_sentence_seconds": 0.981,
+          "first_audio_ready_seconds": 2.971,
+          "full_model_seconds": 1.713,
+          "reply": "目前无法查询实时天气信息。",
+          "sentences": 1,
+          "all_audio_ready_seconds": 2.972
+        }
+      ]
+    }
+  }
+}

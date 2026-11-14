@@ -265,6 +265,51 @@ detectors, all four events, bidirectional neck tracking and motion bounds.
 
 ### Local wake conversation
 
+#### Low-latency replies and model selection
+
+The deployed router uses Qwen3 1.7B Q4_K_M for companion dialogue and Qwen3 4B
+Q4_K_M for work tools. The small model failed the real work-tool acceptance test,
+so it is not used to create or modify work records. `ENMOTION_WORK_MODEL` selects
+the work model independently. `deploy/local-models.ini` plus
+`deploy/enmotion-llm-router.service` keep at most one model resident. Main API model
+requests share a lock so model switches cannot overlap; TTS remains concurrent.
+The 4B preset reduces batch size and offloads 32 layers for GPU memory headroom.
+Switching from chat to work requires loading 4B; cold requests can take tens of
+seconds. After work, 1.7B also needs a one-time reload. These are not warm timings.
+
+`POST /api/companion/stream` emits NDJSON sentence/done/error events, extracting
+only the reply field from the model's streaming JSON. It preserves the companion
+safety path, fresh visual context and final emotion. Voice replies use one reader,
+one ordered TTS worker and playback. The first sentence can play while later
+sentences generate/synthesize. Captions and mouth RMS follow the sentence currently
+playing; the full answer is not displayed early. Failed partial replies do not
+restart the model and repeat the first sentence. Playback remains half-duplex.
+
+On-device three-prompt warm comparison (same prompts, generated answers differ):
+
+| Model with sentence pipeline | First sentence audio ready, seconds | Mean |
+| --- | --- | --- |
+| 4B Q4_K_M | 4.073 / 6.309 / 3.858 | 4.747 |
+| 1.7B Q4_K_M | 3.764 / 3.076 / 2.971 | 3.270 |
+| Final 1.7B router + compact voice prompt | 2.575 / 2.998 / 2.818 | 2.797 |
+
+This measures text-request arrival to audio-file readiness, excluding microphone
+endpointing, ASR and physical speaker latency. Earlier buffered short replies took
+8.04–8.38 seconds for LLM plus TTS. Actual 4B pipeline playback test began at 4.566s.
+Only three prompts were measured, not a general latency/accuracy guarantee.
+The final compact voice prompt reduces prompt length and explicitly disallows
+physical actions it cannot perform; the three final samples followed that limit.
+Reproduce with `python tests/latency_bench.py --label NAME --output runtime/result.json`.
+Recorded samples are in `docs/latency-2026-11-14.json`.
+
+The 1.7B quantization comes from `unsloth/Qwen3-1.7B-GGUF`, SHA256
+`b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897`.
+`scripts/download_small_model.py` downloads/verifies it; put the checked GGUF into
+`models/llm/`. Pause listening with `systemctl --user stop enmotion-listener`, then
+run `sudo bash scripts/select_local_model.sh router` and resume the user service.
+The same script accepts `4b` for rollback to the original single-model setup and
+`1.7b` for standalone benchmarking (not recommended for work tools).
+
 `enmotion-listener.service` is a desktop user service that captures the UGREEN
 microphone with PulseAudio. Enable it with `systemctl --user enable --now
 enmotion-listener` after copying `deploy/enmotion-listener.service` into

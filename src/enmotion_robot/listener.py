@@ -49,9 +49,7 @@ def publish(phase, text="", emotion="calm", amplitude=0):
     os.replace(tmp, STATE)
 
 
-def speak(text, emotion="calm"):
-    publish("thinking", "正在准备语音…", emotion)
-    audio = api("/api/speech/tts", {"text": text})
+def play_audio(text, audio, emotion="calm", on_start=None):
     # Only use the known local audio directory, never a model-provided path.
     path = ROOT / "runtime/audio" / Path(audio["audio_url"]).name
     with wave.open(str(path)) as wav:
@@ -60,11 +58,16 @@ def speak(text, emotion="calm"):
     player = subprocess.Popen(["paplay", "--latency-msec=60", str(path)])
     # PulseAudio startup is not sample-exact; keep captions hidden during buffering.
     start = time.monotonic()+.08
+    announced = False
     try:
         while player.poll() is None:
             if time.monotonic() < start:
                 time.sleep(.01)
                 continue
+            if not announced:
+                announced = True
+                if on_start:
+                    on_start()
             pos = int((time.monotonic()-start)*rate)*channels
             part = samples[pos:pos+max(1, rate//10)*channels]
             publish("speaking", text, emotion, min(1, rms(part)/32768*5))
@@ -74,6 +77,80 @@ def speak(text, emotion="calm"):
     finally:
         if player.poll() is None:
             player.terminate()
+
+
+def speak(text, emotion="calm"):
+    publish("thinking", "正在准备语音…", emotion)
+    play_audio(text, api("/api/speech/tts", {"text": text}), emotion)
+
+
+def respond(text):
+    """LLM reader -> one ordered TTS worker -> playback, overlapped and bounded."""
+    import queue
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    pending = queue.Queue(maxsize=3)
+    stopped = threading.Event()
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sentence-tts")
+    emotion = {"value": "calm"}
+    started = time.monotonic()
+    metrics = {"stage": "pipeline", "first_audio_seconds": None, "sentences": 0}
+
+    def put(item):
+        while not stopped.is_set():
+            try:
+                pending.put(item, timeout=.2)
+                return
+            except queue.Full:
+                pass
+
+    def reader():
+        request = urllib.request.Request('http://127.0.0.1:8080/api/companion/stream',
+            data=json.dumps({'text': text}).encode(), headers={'Content-Type':'application/json'})
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                for raw in response:
+                    if stopped.is_set():
+                        return
+                    event = json.loads(raw)
+                    if event['type'] == 'sentence':
+                        part = event['text']
+                        future = executor.submit(api, '/api/speech/tts', {'text': part})
+                        put(('sentence', part, future))
+                    elif event['type'] == 'done':
+                        emotion['value'] = event.get('emotion', 'calm')
+                    elif event['type'] == 'error':
+                        put(('error', event['message'], None))
+        except Exception:
+            put(('error', '回复传输中断，请再试一次。', None))
+        finally:
+            put(None)
+
+    def first_audio():
+        if metrics['first_audio_seconds'] is None:
+            metrics['first_audio_seconds'] = round(time.monotonic()-started, 3)
+
+    thread = threading.Thread(target=reader, daemon=True, name='reply-stream')
+    thread.start()
+    try:
+        while True:
+            item = pending.get(timeout=150)
+            if item is None:
+                break
+            kind, part, future = item
+            if kind == 'error':
+                speak(part, 'worried')
+                break
+            publish('thinking', '正在准备下一句…', emotion['value'])
+            audio = future.result(timeout=120)
+            play_audio(part, audio, emotion['value'], first_audio)
+            metrics['sentences'] += 1
+    finally:
+        stopped.set()
+        executor.shutdown(wait=True, cancel_futures=True)
+        thread.join(timeout=2)
+        metrics['total_seconds'] = round(time.monotonic()-started, 3)
+        print(json.dumps(metrics), flush=True)
 
 
 class Segmenter:
@@ -207,8 +284,7 @@ def main():
                     speak('收到，本轮对话结束。'); active_until=0
                 else:
                     publish('thinking','正在整理回答…','thinking')
-                    result=api('/api/companion/chat',{'text':text,'session_id':'voice','remember':False,'defer_expression':True})
-                    speak(result['reply'],result.get('action',{}).get('emotion','calm'))
+                    respond(text)
                     active_until=time.monotonic()+45
                 wake.reset()
                 break

@@ -6,12 +6,13 @@ import argparse
 import logging
 import os
 import secrets
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
 from fastapi import Body, FastAPI, File, Form, Header, HTTPException, UploadFile, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from .companion import CompanionCore, CompanionError
@@ -43,6 +44,17 @@ def create_app(
     work = workspace or WorkSpace()
     orchestration = Orchestrator(robot)
     dialogue_activity = {"count": 0}
+    # Prevent simultaneous requests for different resident models on this 8GB board.
+    # TTS is deliberately outside this lock, so synthesis overlaps generation.
+    model_lock = threading.Lock()
+
+    def ask_companion(*args, **kwargs):
+        with model_lock:
+            return mind.chat(*args, **kwargs)
+
+    def ask_work(*args, **kwargs):
+        with model_lock:
+            return work.chat(*args, **kwargs)
 
     def read_listener():
         import json
@@ -183,7 +195,7 @@ def create_app(
     @app.post("/api/work/chat")
     async def work_chat(payload: dict = Body(default_factory=dict)):
         try:
-            return await run_in_threadpool(work.chat, payload.get("text", ""), payload.get("mode", "chat"), payload.get("request_id"))
+            return await run_in_threadpool(ask_work, payload.get("text", ""), payload.get("mode", "chat"), payload.get("request_id"))
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
@@ -210,7 +222,7 @@ def create_app(
             instruction = "请查询现有待办和笔记，结合以下补充做工作复盘：已完成、未完成、卡点和下一步；本轮不修改记录，不编造事实：\n"
         prompt = instruction + text.strip()
         try:
-            result = await run_in_threadpool(work.chat, prompt, mode, request_id)
+            result = await run_in_threadpool(ask_work, prompt, mode, request_id)
             if mode == "notes" or (note and mode == "chat"):
                 steps = result.get("agent", {}).get("steps", [])
                 if not any(s.get("ok") and s.get("operation") == "save_note" for s in steps):
@@ -297,7 +309,7 @@ def create_app(
         dialogue_activity["count"] += 1
         try:
             result = await run_in_threadpool(
-                mind.chat,
+                ask_companion,
                 str(payload.get("text", "")),
                 session_id=str(payload.get("session_id", "default")),
                 remember=bool(payload.get("remember", True)),
@@ -310,6 +322,66 @@ def create_app(
             raise HTTPException(
                 status_code=422, detail={"code": exc.code, "message": str(exc)}
             ) from exc
+        finally:
+            dialogue_activity["count"] -= 1
+
+    @app.post("/api/companion/stream")
+    def companion_stream(payload: dict = Body(...)):
+        import json
+        import queue
+        import threading
+        text = payload.get("text")
+        if not isinstance(text, str) or not 1 <= len(text.strip()) <= 1000:
+            raise HTTPException(422, "请输入 1–1000 字符")
+        events = queue.Queue(maxsize=16)
+        cancelled = threading.Event()
+
+        def send(event):
+            while not cancelled.is_set():
+                try:
+                    events.put(event, timeout=.2)
+                    return
+                except queue.Full:
+                    pass
+            raise RuntimeError("Stream disconnected")
+
+        def produce():
+            dialogue_activity["count"] += 1
+            emitted = []
+            def sentence(part):
+                emitted.append(part)
+                send({"type": "sentence", "text": part, "emotion": "calm"})
+            try:
+                result = ask_companion(text, session_id="voice", remember=False,
+                                   perception=perception_context(), on_sentence=sentence)
+                if not emitted:
+                    send({"type": "sentence", "text": result["reply"], "emotion": result["action"]["emotion"]})
+                elif ''.join(emitted).strip() != result["reply"]:
+                    send({"type": "error", "message": "后续回复未完整生成，请再试一次。"})
+                send({"type": "done", "emotion": result["action"]["emotion"]})
+            except Exception:
+                if not cancelled.is_set():
+                    send({"type": "error", "message": "回复生成失败，请再试一次。"})
+            finally:
+                dialogue_activity["count"] -= 1
+                if not cancelled.is_set():
+                    try:
+                        send(None)
+                    except RuntimeError:
+                        pass
+
+        def body():
+            threading.Thread(target=produce, daemon=True).start()
+            try:
+                while True:
+                    event = events.get()
+                    if event is None:
+                        return
+                    yield json.dumps(event, ensure_ascii=False)+"\n"
+            finally:
+                cancelled.set()
+
+        return StreamingResponse(body(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
     @app.get("/api/companion/memories")
     def list_memories(kind: str | None = None) -> dict:
@@ -318,8 +390,6 @@ def create_app(
             return {"items": items, "count": len(items)}
         except CompanionError as exc:
             raise HTTPException(status_code=422, detail={"code": exc.code, "message": str(exc)}) from exc
-        finally:
-            dialogue_activity["count"] -= 1
 
     @app.delete("/api/companion/memories")
     def clear_memories() -> dict:
@@ -370,7 +440,7 @@ def create_app(
 
         def build_reply(transcript: str) -> str:
             nonlocal dialogue
-            dialogue = mind.chat(transcript, session_id=session_id, remember=remember, perception=perception_context())
+            dialogue = ask_companion(transcript, session_id=session_id, remember=remember, perception=perception_context())
             return dialogue["reply"]
 
         try:

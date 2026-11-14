@@ -472,6 +472,7 @@ class OpenAICompatibleDialogueModel:
             f"本轮视觉检测摘要（未提供表示未知，不是无人）：{json.dumps(context.get('perception'), ensure_ascii=False)}。"
             "不得编造天气、时间、设备状态或声称已执行操作；缺少数据就明确说明，给可行的下一步。"
             "只有上下文明确给出实际工具结果时才能说已完成；不要假装持续监控、主动提醒或拥有电影中的能力。"
+            "没有机械手或家电控制能力，不要提出替用户泡茶、拿物、开关家电等现实行动；可以建议用户自己做。"
             f"当前情绪参考：{emotion.name}。边界：{'；'.join(PERSONALITY.boundaries)}。"
             f"用户允许使用的记忆：{json.dumps(safe_memories, ensure_ascii=False)}。"
             f"会话摘要：{context.get('summary') or '无'}。"
@@ -484,6 +485,20 @@ class OpenAICompatibleDialogueModel:
             "用户直接夸你可爱、聪明或表达喜欢时，真诚接住夸奖，表情用happy；"
             "不要用通用的‘我在这里陪你’把愉快互动变成安慰。"
         )
+        if context.get("_on_sentence"):
+            # Small conversational models follow a compact capability contract more reliably.
+            system = (
+                "/no_think\n你叫小蓝，是冷静、礼貌、简洁、偶尔机智的中文私人助手，自称小蓝，称用户为您。"
+                "先给有用的结论，再给下一步。简单问题最多两句话，总计80字；首个短句尽量8到16字。"
+                "这里只能聊天与提供建议，没有机械手、家电控制、待办写入或联网能力。"
+                "不能替人泡茶、拿东西、开灯，不许询问是否需要你去做这些事。可以建议用户自己休息喝水。"
+                "不知道实时天气和时间，不编造执行结果。不冒充人类或医生，不制造依赖，遇紧急危险建议现实求助。"
+                f"仅有的视觉检测摘要：{json.dumps(context.get('perception'), ensure_ascii=False)}。"
+                "无摘要表示未知。只能说检测到的候选位置，不知道身份、衣服、物品、人的心情或真实距离。"
+                f"允许使用的记忆：{json.dumps(safe_memories, ensure_ascii=False)}。摘要：{context.get('summary') or '无'}。"
+                "只返回JSON，字段顺序reply、emotion、intensity。reply是自然中文回复；emotion选calm/happy/curious/sleepy/worried/thinking，表达应与回复一致；intensity为0到1。"
+                "最后提醒：你没有双手，绝不提出替用户泡茶、拿物或操作家电，只能建议。"
+            )
         messages = [{"role": "system", "content": system}]
         messages.extend(
             {"role": item["role"], "content": item["content"]}
@@ -500,6 +515,7 @@ class OpenAICompatibleDialogueModel:
                 "max_tokens": 256,
                 "response_format": {"type": "json_object"},
                 "chat_template_kwargs": {"enable_thinking": False},
+                "stream": bool(context.get("_on_sentence")),
             }
         ).encode()
         headers = {"Content-Type": "application/json"}
@@ -508,8 +524,30 @@ class OpenAICompatibleDialogueModel:
         request = urllib.request.Request(self.url, data=body, headers=headers, method="POST")
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                payload = json.load(response)
-            content = str(payload["choices"][0]["message"]["content"]).strip()
+                if context.get("_on_sentence"):
+                    from .streaming import SentenceEmitter, reply_prefix
+                    emitter = SentenceEmitter(context["_on_sentence"])
+                    content = ""
+                    for line in response:
+                        if not line.startswith(b"data:"):
+                            continue
+                        data = line[5:].strip()
+                        if data == b"[DONE]":
+                            break
+                        event = json.loads(data)
+                        if event.get("error"):
+                            raise CompanionError("stream_failed", "回复生成中断")
+                        choices = event.get("choices") or []
+                        if choices:
+                            content += choices[0].get("delta", {}).get("content") or ""
+                            emitter.accept(reply_prefix(content))
+                    parsed = json.loads(content)
+                    if not isinstance(parsed.get("reply"), str):
+                        raise CompanionError("stream_invalid", "流式回复格式无效")
+                    emitter.accept(parsed["reply"], final=True)
+                else:
+                    payload = json.load(response)
+                    content = str(payload["choices"][0]["message"]["content"]).strip()
         except (OSError, KeyError, IndexError, TypeError, json.JSONDecodeError, urllib.error.URLError) as exc:
             raise CompanionError("dialogue_provider_failed", "外部对话模型不可用") from exc
         reply, self.last_emotion_signal = self._parse_content(content)
@@ -639,7 +677,7 @@ class CompanionCore:
     def current_action(self) -> dict[str, Any]:
         return _action_for(self.emotion.snapshot())
 
-    def chat(self, text: str, *, session_id: str = "default", remember: bool = True, perception: dict | None = None) -> dict[str, Any]:
+    def chat(self, text: str, *, session_id: str = "default", remember: bool = True, perception: dict | None = None, on_sentence=None) -> dict[str, Any]:
         text = text.strip()
         if not text:
             raise CompanionError("empty_message", "请输入想对机器人说的话")
@@ -653,6 +691,8 @@ class CompanionCore:
         context = self.store.conversation_context(session_id)
         if perception is not None:
             context["perception"] = perception
+        if on_sentence is not None:
+            context["_on_sentence"] = on_sentence
         memories = self.store.list_memories()
         if safety["response"]:
             reply = safety["response"]
