@@ -225,6 +225,44 @@ disposable database and never modifies the user's tasks or notes.
 
 ## Robot screen
 
+### Vision and multimodal orchestration (Week 5)
+
+Install the locked `vision` extra (`uv sync --extra vision --frozen`) alongside
+the existing speech/agent extras as required. OpenCV 4.10 headless runs one CPU
+thread: Haar frontal faces and HOG full-body detection, at up to four processing
+cycles per second, 640px width. This is lightweight presence/position detection,
+not image-language understanding, identity, demographic or emotion inference.
+Profile faces, occlusion, poor lighting and seated bodies may be missed; HOG may
+also report false positives. No camera frames are saved or uploaded.
+
+The main runtime starts perception automatically; `ENMOTION_VISION_ENABLED=0`
+disables camera access and `ENMOTION_CAMERA` selects a V4L2 index or stable path.
+Camera failure reports offline, releases the device and retries; it does not
+invent an exit event. Status and detection positions: `/vision`, `/api/vision`.
+Touch tests: `POST /api/vision/touch` or touch the face. No hardware purchase or
+motor arming is needed. `voice > touch > vision > idle` arbitrates gaze/virtual
+neck/emotion; actual ESP32 motor commands are never emitted by this module.
+
+Entry requires 0.5s of observations; absence tolerates 1.5s, long empty is 30s.
+Approach means 1.5x target image area of the same detector class, not metric
+distance. Events have a 5s per-type cooldown. Nearest previous target is retained
+to reduce switching; this is not identity tracking. Gaze uses smoothing and a
+deadband; virtual neck stays within yaw ±25°, pitch ±12°. Visual emotion returns
+to calm after its transient event. Speech/TTS/listener activity takes precedence.
+The dialogue receives only a fresh (<3s) local detection summary, not images.
+
+Offline file validation uses the same detector and orchestrator:
+
+```bash
+python -m enmotion_robot.vision --input /path/to/test.mp4 --output runtime/vision.jsonl
+python tests/vision_smoke.py runtime/vision-face.jpg runtime/vision-people.png runtime/vision-smoke
+```
+
+The smoke script uses public OpenCV sample images downloaded separately from
+`opencv/opencv`'s `samples/data/lena.jpg` and `basketball1.png`; sample media is not
+committed. It generates a 44-second, 176-frame MJPEG fixture, validates both real
+detectors, all four events, bidirectional neck tracking and motion bounds.
+
 ### Local wake conversation
 
 `enmotion-listener.service` is a desktop user service that captures the UGREEN

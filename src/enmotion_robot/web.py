@@ -20,6 +20,7 @@ from .simulator import SIMULATOR_COMMANDS, RobotSimulator
 from .speech import SpeechCoordinator, SpeechError, WavBytesSource
 from .work import WorkSpace
 from .folder_sync import import_note, heartbeat
+from .vision import Orchestrator, VisionService
 
 
 LOG = logging.getLogger("enmotion.web")
@@ -40,13 +41,41 @@ def create_app(
     voice = speech or SpeechCoordinator()
     mind = companion or CompanionCore()
     work = workspace or WorkSpace()
+    orchestration = Orchestrator(robot)
+    dialogue_activity = {"count": 0}
+
+    def read_listener():
+        import json
+        import time
+        try:
+            state = json.loads((STATIC_DIR.parents[2] / "runtime/listener.json").read_text())
+            if time.time() - state["at"] < (150 if state.get("phase") in {"thinking", "recognizing"} else 15):
+                return state
+        except (OSError, ValueError, KeyError):
+            pass
+        return {"phase": "offline"}
+
+    vision = VisionService(orchestration, read_listener,
+                           lambda: voice.status()["processing"] or dialogue_activity["count"] > 0)
+
+    def perception_context():
+        import time
+        state = orchestration.snapshot()
+        if not state["online"] or time.time()-state.get("updated_at", 0) > 3:
+            return None
+        return {"source": "local_camera_detection", "stable_target": state.get("present", False),
+                "face_candidates": sum(d["kind"] == "face" for d in state["detections"]),
+                "body_candidates": sum(d["kind"] == "person" for d in state["detections"]),
+                "target_position": state.get("target"), "distance": "unknown"}
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         if manage_supervisor:
             runtime.start()
+            vision.start()
         yield
         if manage_supervisor:
+            vision.stop()
             runtime.stop()
 
     app = FastAPI(title="Enmotion Robot Debug", version="0.2.0", lifespan=lifespan)
@@ -54,6 +83,7 @@ def create_app(
     app.state.simulator = robot
     app.state.speech = voice
     app.state.companion = mind
+    app.state.orchestration = orchestration
     companion_control = {"active": False, "emotion": "calm"}
 
     def apply_companion_action(result: dict) -> None:
@@ -92,15 +122,20 @@ def create_app(
 
     @app.get("/api/listener")
     def listener_status():
-        import json
-        import time
-        try:
-            state = json.loads((STATIC_DIR.parents[2] / "runtime/listener.json").read_text())
-            if time.time() - state["at"] < (150 if state.get("phase") in {"thinking", "recognizing"} else 15):
-                return state
-        except (OSError, ValueError, KeyError):
-            pass
-        return {"phase": "offline"}
+        return read_listener()
+
+    @app.get("/api/vision")
+    def vision_status():
+        return orchestration.snapshot()
+
+    @app.post("/api/vision/touch")
+    def screen_touch():
+        orchestration.touch()
+        return {"ok": True}
+
+    @app.get("/vision", include_in_schema=False)
+    def vision_page():
+        return FileResponse(STATIC_DIR / "vision.html", headers={"Cache-Control": "no-store"})
 
     @app.post("/api/display")
     def display_heartbeat(request: Request, payload: dict = Body(...)):
@@ -239,6 +274,7 @@ def create_app(
         simulation = robot.snapshot()
         if (
             companion_control["active"]
+            and orchestration.snapshot()["priority"] == "idle"
             and simulation["emotion"] == companion_control["emotion"]
             and simulation["emotion"] != companion_state["emotion"]["name"]
         ):
@@ -249,6 +285,7 @@ def create_app(
             "simulation": simulation,
             "speech": voice.status(),
             "companion": companion_state,
+            "vision": orchestration.snapshot(),
         }
 
     @app.get("/api/companion/status")
@@ -257,12 +294,14 @@ def create_app(
 
     @app.post("/api/companion/chat")
     async def companion_chat(payload: dict = Body(default_factory=dict)) -> dict:
+        dialogue_activity["count"] += 1
         try:
             result = await run_in_threadpool(
                 mind.chat,
                 str(payload.get("text", "")),
                 session_id=str(payload.get("session_id", "default")),
                 remember=bool(payload.get("remember", True)),
+                perception=perception_context(),
             )
             if not payload.get("defer_expression", False):
                 apply_companion_action(result)
@@ -279,6 +318,8 @@ def create_app(
             return {"items": items, "count": len(items)}
         except CompanionError as exc:
             raise HTTPException(status_code=422, detail={"code": exc.code, "message": str(exc)}) from exc
+        finally:
+            dialogue_activity["count"] -= 1
 
     @app.delete("/api/companion/memories")
     def clear_memories() -> dict:
@@ -329,7 +370,7 @@ def create_app(
 
         def build_reply(transcript: str) -> str:
             nonlocal dialogue
-            dialogue = mind.chat(transcript, session_id=session_id, remember=remember)
+            dialogue = mind.chat(transcript, session_id=session_id, remember=remember, perception=perception_context())
             return dialogue["reply"]
 
         try:

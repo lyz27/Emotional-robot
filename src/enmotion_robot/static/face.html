@@ -55,15 +55,26 @@ function draw(ms){requestAnimationFrame(draw);if(document.hidden){lastTime=ms;re
  ctx.restore();
 }requestAnimationFrame(draw);
 canvas.addEventListener('pointermove',e=>{pointer={x:(e.clientX/innerWidth-.5)*1.6,y:(e.clientY/innerHeight-.45)*1.3,until:performance.now()+1800}});
-canvas.addEventListener('pointerdown',()=>{state.pop=1;setMood('happy',true);$('line').textContent='嗯，我在呢。';blinkStart=clock});
+canvas.addEventListener('pointerdown',()=>{fetch('/api/vision/touch',{method:'POST'}).catch(()=>{});state.pop=1;setMood('happy',true);$('line').textContent='嗯，我在呢。';blinkStart=clock});
 async function json(url,body){const r=await fetch(url,{cache:'no-store',...(body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})});const v=await r.json();if(!r.ok)throw Error(typeof v.detail==='string'?v.detail:'服务暂时不可用');return v}
-async function refresh(){if(fetching)return;fetching=true;try{const data=await json('/api/robot');online=true;$('status').classList.remove('off');if(!busy&&!presenting&&performance.now()>previewUntil){setMood(data.simulation.emotion);targetGaze=data.simulation.gaze||{x:0,y:0}}if(data.simulation.blink_count!==lastBlink){if(lastBlink>=0)blinkStart=clock;lastBlink=data.simulation.blink_count}}catch(e){online=false;$('status').textContent='暂时离线 · 我还在这里';$('status').classList.add('off')}finally{fetching=false}}
+async function refresh(){if(fetching)return;fetching=true;try{const data=await json('/api/robot');online=true;$('status').classList.remove('off');if(!busy&&!presenting){targetGaze=data.simulation.gaze||{x:0,y:0};if(performance.now()>previewUntil||listener.phase==='waiting')setMood(data.simulation.emotion)}if(data.simulation.blink_count!==lastBlink){if(lastBlink>=0)blinkStart=clock;lastBlink=data.simulation.blink_count}}catch(e){online=false;$('status').textContent='暂时离线 · 我还在这里';$('status').classList.add('off')}finally{fetching=false}}
 function connectAudio(){if(audioContext)return;audioContext=new AudioContext();analyser=audioContext.createAnalyser();analyser.fftSize=256;bins=new Uint8Array(analyser.fftSize);audioContext.createMediaElementSource($('voice')).connect(analyser);analyser.connect(audioContext.destination)}
 $('chat').onsubmit=async e=>{e.preventDefault();if(busy)return;const text=$('text').value.trim();if(!text)return;busy=true;$('send').disabled=true;$('panel').close();$('voice').pause();presenting=false;connectAudio();audioContext.resume().catch(()=>{});setMood('thinking');$('line').textContent='让我想一想…';try{const result=await json('/api/companion/chat',{text,session_id:'browser',defer_expression:true});$('line').textContent=result.reply;$('text').value='';setMood(result.action?.emotion||'calm',true);try{const speech=await json('/api/speech/tts',{text:result.reply});$('voice').src=speech.audio_url;presenting=true;await $('voice').play()}catch(e){presenting=false;$('sub').textContent='文字回复 · 语音暂不可用'}}catch(e){$('line').textContent='这次没有听清，愿意再说一次吗？';$('sub').textContent=e.message;setMood('worried',true)}finally{busy=false;$('send').disabled=false}};
 $('voice').onended=()=>{presenting=false;previewUntil=performance.now()+3500};$('voice').onerror=()=>{presenting=false};
 for(const [name,m]of Object.entries(moods)){const b=document.createElement('button');b.textContent=m.label;b.onclick=()=>{setMood(name,true);$('line').textContent={calm:'慢慢来，我陪着你。',happy:'见到你，心情都亮起来了。',curious:'然后呢？我想听听。',sleepy:'今天辛苦了，休息一下吧。',worried:'没关系，我们一起慢慢理清。',thinking:'给我一点时间，让想法连起来。'}[name];$('panel').close()};$('moods').append(b)}
 $('talk').onclick=()=>{$('panel').showModal();$('text').focus()};$('settings').onclick=()=>$('panel').showModal();$('close').onclick=()=>$('panel').close();$('full').onclick=()=>{if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(()=>{});else document.exitFullscreen()};
 refresh();setInterval(refresh,1200);
-let listener={phase:'offline'},listenerPending=false;async function refreshListener(){if(listenerPending)return;listenerPending=true;try{listener=await json('/api/listener');if(listener.phase!=='offline'&&!busy&&!presenting){const phase=listener.phase;setMood(phase==='thinking'||phase==='recognizing'?'thinking':phase==='listening'?'curious':listener.emotion||'calm',true);$('line').textContent=listener.text||'说“嘿，小蓝”唤醒我';$('status').textContent={waiting:'等待唤醒',listening:'我在听',recognizing:'正在识别',thinking:'正在思考',speaking:'正在回答',error:'语音重连中'}[phase]||phase;$('sub').textContent='本地语音 · 回答结束后可继续说 · 说“停止对话”结束'}}catch(e){}finally{listenerPending=false}}setInterval(refreshListener,400);
+let listener={phase:'offline'},listenerPending=false;
+async function refreshListener(){
+ if(listenerPending)return;listenerPending=true;
+ try{listener=await json('/api/listener');if(listener.phase!=='offline'&&!busy&&!presenting){
+  const phase=listener.phase;
+  if(phase!=='waiting')setMood(phase==='thinking'||phase==='recognizing'?'thinking':phase==='listening'?'curious':listener.emotion||'calm',true);
+  $('line').textContent=listener.text||'说“嘿，小蓝”唤醒我';
+  $('status').textContent={waiting:'等待唤醒',listening:'我在听',recognizing:'正在识别',thinking:'正在思考',speaking:'正在回答',error:'语音重连中'}[phase]||phase;
+  $('sub').textContent='本地语音 · 回答结束后可继续说 · 说“停止对话”结束';
+ }}catch(e){}finally{listenerPending=false}
+}setInterval(refreshListener,400);
 let sampleFrame=0,sampleTime=performance.now();setInterval(()=>{const now=performance.now(),fps=(frame-sampleFrame)*1000/(now-sampleTime);sampleFrame=frame;sampleTime=now;if(!document.hidden)json('/api/display',{fps:Math.round(fps*10)/10,width:innerWidth,height:innerHeight}).catch(()=>{})},10000);
+let visionPending=false;setInterval(async()=>{if(visionPending)return;visionPending=true;try{const v=await json('/api/vision');if(!busy&&!presenting&&v.gaze)targetGaze=v.gaze}catch(e){}finally{visionPending=false}},300);
 </script></html>

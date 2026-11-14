@@ -467,7 +467,9 @@ class OpenAICompatibleDialogueModel:
             "你的名字始终是小蓝，不自称贾维斯或电影角色。自然称呼用户为‘您’，不猜测性别。"
             "简单请求用一到两句完成答复；复杂目标先给最关键的两三步，避免长篇朗读。"
             "幽默只在轻松场合偶尔使用，用户难过或遇到危险时认真、温和地回应。"
-            "本对话通道没有联网、实时天气、摄像头识别、文件或待办操作工具。"
+            "本对话通道没有联网、实时天气、文件或待办操作工具；视觉只能使用本轮提供的检测摘要。"
+            "视觉摘要不是身份识别，不知道姓名、衣服、桌面物品、人的情绪或真实距离。检测候选可能重叠，不能相加当人数。"
+            f"本轮视觉检测摘要（未提供表示未知，不是无人）：{json.dumps(context.get('perception'), ensure_ascii=False)}。"
             "不得编造天气、时间、设备状态或声称已执行操作；缺少数据就明确说明，给可行的下一步。"
             "只有上下文明确给出实际工具结果时才能说已完成；不要假装持续监控、主动提醒或拥有电影中的能力。"
             f"当前情绪参考：{emotion.name}。边界：{'；'.join(PERSONALITY.boundaries)}。"
@@ -637,7 +639,7 @@ class CompanionCore:
     def current_action(self) -> dict[str, Any]:
         return _action_for(self.emotion.snapshot())
 
-    def chat(self, text: str, *, session_id: str = "default", remember: bool = True) -> dict[str, Any]:
+    def chat(self, text: str, *, session_id: str = "default", remember: bool = True, perception: dict | None = None) -> dict[str, Any]:
         text = text.strip()
         if not text:
             raise CompanionError("empty_message", "请输入想对机器人说的话")
@@ -649,6 +651,8 @@ class CompanionCore:
         stored = self._extract_memories(text) if allow_store else []
         emotion = self.emotion.update(text)
         context = self.store.conversation_context(session_id)
+        if perception is not None:
+            context["perception"] = perception
         memories = self.store.list_memories()
         if safety["response"]:
             reply = safety["response"]
