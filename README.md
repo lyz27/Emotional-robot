@@ -140,8 +140,9 @@ from companion memory. Suggestions can be confirmed via the editor; with the
 Agent installed, explicit requests to save, create, update or complete records
 execute directly and return tool receipts in the conversation.
 
-Reminders currently appear in the open browser and overdue reminders are shown
-on reopening; there is no phone push or background browser notification service.
+Due tasks also enter a durable robot voice queue. With the robot powered on and
+its listener running, delivery waits until the voice session is idle. The work
+page can be closed and face detection is not required. There is no phone push.
 UI checks: `node tests/work_ui.cjs` and `node tests/dashboard_presentation.cjs`.
 
 Install the work Agent with `uv sync --extra agent --extra speech --extra dev`
@@ -351,8 +352,10 @@ Captions hide reply text during synthesis and appear at estimated audio onset;
 This is not forced word alignment or a measured sample-exact speaker timestamp.
 Speech playback pauses and
 reopens capture to avoid self-triggering; speaking cannot currently be interrupted
-by voice. Microphone utterances stay in memory, and long-term companion memories
-are disabled for this path. The default response pipeline uses `/api/speech/pcm`:
+by voice. Raw microphone audio remains in memory. Voice transcripts now retain
+bounded local conversation history and allowed profile/preferences, with existing
+privacy filters. Explicit tasks and notes live in `work.db`; see below.
+The default response pipeline uses `/api/speech/pcm`:
 VITS callback samples are transported as bounded NDJSON/base64 20ms PCM packets,
 then paced through one continuous `pacat` stream across reply sentences. Playback
 starts before synthesis completes. The native VITS callback still produces batches;
@@ -390,6 +393,37 @@ counting. No camera frames or microphone recordings are saved by these rules.
 Measured transport checks and limits for the streaming update are recorded in
 `docs/streaming-care-2026-11-14.json`. Hardware output drained successfully using
 silent PCM; physical conversation and welcome acceptance remain separate checks.
+
+### Durable voice assistant
+
+Voice, face chat and work chat now share the same committed work records.
+`assistant.py` handles common scheduling, recall, rescheduling, completion and
+explicit notes locally. Success is confirmed only after SQLite commits. Missing
+times and ambiguous targets ask a follow-up; clarification state persists for
+15 minutes across restarts. Dates use Asia/Shanghai. Task names and the last-task
+reference replace database identifiers. Complex explicit requests use Qwen-Agent;
+breakdown and review remain suggestions with read-only tools.
+
+Try “明天十一点提醒我去剪头发”, “我明天要干什么”, “把刚才那项改到后天下午两点”,
+“剪头发已经做完了”, or “记住：演示用蓝色方案”. Cancelling a reminder clears its time
+and retains the task; explicitly deleting the task removes it. Writes use request
+IDs and exact title/time duplicate checks. A crash between a write and receipt
+storage can lose the receipt; query the database to establish actual state.
+
+Voice history now persists in the companion database across wake sessions. Tasks,
+notes, last-task references and reminder acknowledgements persist in `work.db`.
+Small model prompts get bounded history and a partial, relevance-ranked record
+snapshot; explicit schedule queries read SQLite directly. Save durable facts as
+notes: this does not promise unlimited verbatim chat recall. Privacy and secret
+filters run before tool dispatch and transcript storage.
+
+Task delivery uses leases and acknowledges after playback. Catch-up announcements
+are spaced at least 30 seconds apart. Done/deleted tasks are excluded, rescheduling
+invalidates old delivery state, and a crash after playback but before acknowledgement
+can cause replay. Delivery waits for the current conversation window to end.
+Old completed tasks lack completion dates, so they cannot establish when work was
+finished. Validation is in `tests/test_assistant.py` and `docs/assistant-2026-11-14.md`.
+Runtime databases and backups remain outside Git.
 
 The assistant's default persona is 小蓝: a calm, concise, courteous Chinese personal
 assistant with restrained wit inspired by JARVIS. It retains its own identity,

@@ -27,6 +27,9 @@ class WorkSpace:
                     updated_at TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS agent_runs (
                     id TEXT PRIMARY KEY, result TEXT NOT NULL, created_at TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS task_notifications(
+                    task_id INTEGER NOT NULL, due TEXT NOT NULL, token TEXT NOT NULL,
+                    lease_until TEXT, delivered_at TEXT, PRIMARY KEY(task_id,due));
             """)
             from .folder_sync import configure_tables
             configure_tables(db)
@@ -55,7 +58,7 @@ class WorkSpace:
         return {"tasks": tasks, "notes": notes, "messages": self.history.conversation_context("work")["messages"],
                 "agent_enabled": available() and bool(os.getenv("ENMOTION_DIALOGUE_URL", "").strip()),
                 "sync": {"file_count": sync_count, "client": dict(sync_client) if sync_client else None},
-                "reminder_delivery": "browser-open"}
+                "reminder_delivery": "robot-voice-and-browser"}
 
     def save(self, kind, payload, item_id=None):
         if kind not in {"tasks", "notes"}:
@@ -75,6 +78,8 @@ class WorkSpace:
                 if done not in (True, False, 0, 1):
                     raise ValueError("完成状态无效")
                 if item_id:
+                    if due != old['due'] or (old['done'] and not done):
+                        db.execute('DELETE FROM task_notifications WHERE task_id=?',(item_id,))
                     db.execute("UPDATE tasks SET title=?,due=?,done=? WHERE id=?", (title, due, int(done), item_id))
                 else:
                     item_id = db.execute("INSERT INTO tasks(title,due,created_at) VALUES(?,?,?)", (title, due, utc_now())).lastrowid
@@ -92,6 +97,7 @@ class WorkSpace:
         if kind not in {"tasks", "notes"}:
             raise ValueError("未知记录类型")
         with self.connect() as db:
+            if kind=='tasks':db.execute('DELETE FROM task_notifications WHERE task_id=?',(item_id,))
             return db.execute(f"DELETE FROM {kind} WHERE id=?", (item_id,)).rowcount > 0
 
     def chat(self, text, mode="chat", request_id=None):

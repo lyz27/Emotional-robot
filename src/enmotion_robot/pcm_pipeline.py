@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 import urllib.request
+import uuid
 
 
 def events(path, payload):
@@ -90,7 +91,7 @@ def run(text,publish, event_source=events, output_factory=PCMOutput):
 
     def read_model():
         try:
-            for event in event_source('/api/companion/stream',{'text':text}):
+            for event in event_source('/api/companion/stream',{'text':text,'request_id':uuid.uuid4().hex}):
                 if stopped.is_set():break
                 if event['type']=='sentence':put(phrases,event['text'])
                 elif event['type']=='done':emotion['value']=event.get('emotion','calm')

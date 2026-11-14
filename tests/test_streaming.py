@@ -20,6 +20,15 @@ def test_incremental_json_escaping_and_order():
     assert all('emotion' not in p for p in out)
 
 
+def test_time_colon_is_not_a_sentence_boundary():
+    for text in ('明天15日11:00将进行剪发安排','这是保存的那一项任务现在已经安排到了明天11:00。'):
+        parts=[];emitter=SentenceEmitter(parts.append)
+        for i in range(len(text)+1):emitter.accept(text[:i])
+        emitter.accept(text,final=True)
+        assert ''.join(parts)==text
+        assert not any(p.endswith((':','11','11:0')) for p in parts)
+
+
 def test_stream_uses_safety_and_no_duplicate_fallback(tmp_path):
     class Remote:
         last_emotion_signal = ('calm', .3)

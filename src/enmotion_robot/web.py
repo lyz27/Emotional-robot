@@ -23,6 +23,7 @@ from .work import WorkSpace
 from .folder_sync import import_note, heartbeat
 from .vision import Orchestrator, VisionService
 from .wellness import WellnessRules
+from .assistant import Assistant
 
 
 LOG = logging.getLogger("enmotion.web")
@@ -43,6 +44,7 @@ def create_app(
     voice = speech or SpeechCoordinator()
     mind = companion or CompanionCore()
     work = workspace or WorkSpace()
+    assistant = Assistant(work)
     orchestration = Orchestrator(robot)
     wellness = WellnessRules(STATIC_DIR.parents[2] / 'runtime/wellness-config.json')
     dialogue_activity = {"count": 0}
@@ -55,8 +57,34 @@ def create_app(
             return mind.chat(*args, **kwargs)
 
     def ask_work(*args, **kwargs):
+        text=args[0]
+        mode=args[1] if len(args)>1 else kwargs.get('mode','chat')
+        if not mind.safety.inspect(text)['store_allowed']:
+            result=ask_companion(text,remember=False)
+            return {'reply':result['reply'],'fallback':False,'mode':mode}
+        if mode=='chat' and mind.safety.inspect(text)['store_allowed']:
+            direct=assistant.handle(text,'work',kwargs.get('request_id') or (args[2] if len(args)>2 else None))
+            if direct:return {**direct,'fallback':False,'mode':mode}
         with model_lock:
             return work.chat(*args, **kwargs)
+
+    def ask_assistant(text,session_id='voice',remember=True,perception=None,on_sentence=None,request_id=None):
+        safe=mind.safety.inspect(text)
+        if safe['store_allowed'] and not safe['response']:
+            direct=assistant.handle(text,session_id,request_id)
+            if direct is None:
+                import re
+                if re.search(r'拆解|复盘|(?:整理|修改|更新).*(?:笔记|备忘)|保存|记录|记下来|记一下|提醒我|创建.*待办|修改.*(?:任务|事项|待办)|完成.*(?:任务|事项|待办)',text) and not re.search(r'不要|别帮|不用|不需要|先不|不想|假如|假设|举个例|比如|如果',text):
+                    mode='breakdown' if '拆解' in text else 'review' if '复盘' in text else 'chat'
+                    with model_lock:
+                        direct=work.chat(text,mode,request_id)
+            if direct:
+                if remember:mind.store.add_exchange(session_id,text,direct['reply'])
+                mind.emotion.set_from_model('calm',.35)
+                return {'ok':True,'reply':direct['reply'],'action':mind.current_action(),
+                        'assistant':direct,'remembered':remember,'session_id':session_id}
+        return ask_companion(text,session_id=session_id,remember=remember,perception=perception,
+                             on_sentence=on_sentence,work_context=assistant.context(text) if safe['store_allowed'] else None)
 
     def read_listener():
         import json
@@ -107,6 +135,7 @@ def create_app(
     app.state.companion = mind
     app.state.orchestration = orchestration
     app.state.wellness = wellness
+    app.state.assistant = assistant
     companion_control = {"active": False, "emotion": "calm"}
 
     def apply_companion_action(result: dict) -> None:
@@ -173,13 +202,14 @@ def create_app(
             raise HTTPException(403, '仅允许本机语音服务领取提醒')
         wellness.update(orchestration.snapshot())
         free = read_listener().get('phase') == 'waiting' and not voice.status().get('processing', False) and dialogue_activity['count'] == 0
-        return {'job':wellness.claim(free)}
+        return {'job':(assistant.claim_reminder() or wellness.claim(True)) if free else None}
 
     @app.post('/api/wellness/ack')
     def care_ack(request: Request, payload: dict = Body(...)):
         if request.client.host not in {'127.0.0.1','::1','testclient'}:
             raise HTTPException(403, '仅允许本机语音服务确认提醒')
-        return {'ok':wellness.acknowledge(payload.get('id'))}
+        token=payload.get('id')
+        return {'ok':assistant.acknowledge_reminder(token) if isinstance(token,str) and token.startswith('task:') else wellness.acknowledge(token)}
 
     @app.post("/api/vision/touch")
     def screen_touch():
@@ -350,7 +380,7 @@ def create_app(
         dialogue_activity["count"] += 1
         try:
             result = await run_in_threadpool(
-                ask_companion,
+                ask_assistant,
                 str(payload.get("text", "")),
                 session_id=str(payload.get("session_id", "default")),
                 remember=bool(payload.get("remember", True)),
@@ -393,10 +423,14 @@ def create_app(
                 emitted.append(part)
                 send({"type": "sentence", "text": part, "emotion": "calm"})
             try:
-                result = ask_companion(text, session_id="voice", remember=False,
+                result = ask_assistant(text, session_id="voice", remember=True,request_id=payload.get('request_id'),
                                    perception=perception_context(), on_sentence=sentence)
                 if not emitted:
-                    send({"type": "sentence", "text": result["reply"], "emotion": result["action"]["emotion"]})
+                    import re
+                    # Preserve times such as 11:00; long lists still fit the TTS API.
+                    for phrase in re.split(r'(?<=[。；])',result['reply']):
+                        for offset in range(0,len(phrase),200):
+                            send({'type':'sentence','text':phrase[offset:offset+200],'emotion':result['action']['emotion']})
                 elif ''.join(emitted).strip() != result["reply"]:
                     send({"type": "error", "message": "后续回复未完整生成，请再试一次。"})
                 send({"type": "done", "emotion": result["action"]["emotion"]})

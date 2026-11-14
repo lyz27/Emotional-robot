@@ -334,10 +334,11 @@ def main():
                             job=api('/api/wellness/claim',{},timeout=.4).get('job')
                         except Exception:
                             job=None
-                        if job and 'care_'+job['kind'] in controls:
+                        if job and (job['kind']=='task' or 'care_'+job['kind'] in controls):
                             capture.terminate();capture.wait(timeout=3)
                             if job['id'] not in delivered:
-                                control_reply('care_'+job['kind'],controls)
+                                if job['kind']=='task':speak(job['text'])
+                                else:control_reply('care_'+job['kind'],controls)
                                 delivered.add(job['id'])
                             try:api('/api/wellness/ack',{'id':job['id']},timeout=.4)
                             except Exception:pass
