@@ -43,10 +43,10 @@ def is_goodbye(text):
                      'byebye','不聊','不聊了','不想聊','不想聊了','先这样','结束对话','停止对话','退出','退出对话'}
 
 
-def api(path, payload):
+def api(path, payload, timeout=120):
     req = urllib.request.Request("http://127.0.0.1:8080" + path,
         data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
-    return json.load(urllib.request.urlopen(req, timeout=120))
+    return json.load(urllib.request.urlopen(req, timeout=timeout))
 
 
 def publish(phase, text="", emotion="calm", amplitude=0):
@@ -93,6 +93,8 @@ def speak(text, emotion="calm"):
 
 
 CONTROL_REPLIES = {'goodbye': '再见。', 'present': '我在，请说。', 'identity': '我叫小蓝，是您的本地助手。'}
+from .wellness import MESSAGES
+CONTROL_REPLIES.update({'care_'+key:text for key,text in MESSAGES.items()})
 
 
 def prepare_controls():
@@ -115,6 +117,13 @@ def control_reply(key, cache):
 
 
 def respond(text):
+    if os.getenv('ENMOTION_PCM_STREAM','1')=='1':
+        from .pcm_pipeline import run
+        return run(text,publish)
+    return respond_buffered(text)
+
+
+def respond_buffered(text):
     """LLM reader -> one ordered TTS worker -> playback, overlapped and bounded."""
     import queue
     import threading
@@ -269,17 +278,29 @@ def cue():
 def main():
     publish("thinking", "正在初始化语音系统…")
     engine = OfflineSpeechEngine(SpeechModelPaths(ROOT / "models"), num_threads=2)
-    engine._get_recognizer()
+    online = None
+    if os.getenv('ENMOTION_STREAMING_ASR','1')=='1':
+        from .online_audio import OnlineSpeech, EndpointPolicy
+        online = OnlineSpeech(ROOT/'models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16')
+        endpoint = EndpointPolicy()
+    else:
+        engine._get_recognizer()
     wake = WakeSpotter()
     controls = prepare_controls()
     active_until = 0
     silence = float(os.getenv('ENMOTION_END_SILENCE', '1.8'))
+    last_care_poll = 0
+    idle_quiet = 0
+    delivered = set()
     while True:
         capture = None
         try:
             capture = subprocess.Popen(["parec", "--device="+SOURCE, "--format=s16le",
                 "--rate=16000", "--channels=1", "--latency-msec=60"], stdout=subprocess.PIPE)
-            segment = Segmenter(silence=silence)
+            segment = Segmenter(silence=5.0 if online else silence)
+            if online: online.reset()
+            hypothesis = ''
+            changed_at = time.monotonic()
             heartbeat = 0
             maybe_end = False
             last_idle_reset = time.monotonic()
@@ -290,12 +311,15 @@ def main():
                 now = time.monotonic()
                 active = now < active_until or bool(segment.frames)
                 if not active:
+                    idle_quiet = idle_quiet+1 if rms(array.array('h',raw))/32768 < .0025 else 0
                     if now-last_idle_reset > 60:
                         wake.reset(); last_idle_reset=now
                     if wake.accept(raw):
                         print(json.dumps({'stage':'wake','at':time.time()}),flush=True)
                         active_until = now+45
                         segment.reset()
+                        if online: online.reset()
+                        hypothesis = ''
                         cue_player = cue()
                         # Reap the short cue without blocking the microphone.
                         import threading
@@ -304,12 +328,40 @@ def main():
                         heartbeat=now
                     elif now-heartbeat > 1:
                         publish('waiting','说“嘿，小蓝”唤醒我'); heartbeat=now
+                    elif idle_quiet>=40 and now-last_care_poll>=2:
+                        last_care_poll=now
+                        try:
+                            job=api('/api/wellness/claim',{},timeout=.4).get('job')
+                        except Exception:
+                            job=None
+                        if job and 'care_'+job['kind'] in controls:
+                            capture.terminate();capture.wait(timeout=3)
+                            if job['id'] not in delivered:
+                                control_reply('care_'+job['kind'],controls)
+                                delivered.add(job['id'])
+                            try:api('/api/wellness/ack',{'id':job['id']},timeout=.4)
+                            except Exception:pass
+                            if len(delivered)>100:delivered={job['id']}
+                            idle_quiet=0;wake.reset()
+                            publish('waiting','说“嘿，小蓝”唤醒我')
+                            break
                     continue
                 if now-heartbeat > .3:
-                    publish('listening','我在听，您说完后稍停一下。','curious'); heartbeat=now
-                maybe_end = wake.accept_end(raw) or maybe_end
+                    publish('listening',('您：'+hypothesis[-60:]) if hypothesis else '我在听，您说完后稍停一下。','curious'); heartbeat=now
+                if online:
+                    partial = online.accept(raw)
+                    if partial != hypothesis:
+                        hypothesis, changed_at = partial, now
+                else:
+                    maybe_end = wake.accept_end(raw) or maybe_end
                 completed = segment.accept(raw)
-                if maybe_end and segment.frames and segment.quiet >= 28 and len(segment.frames) < 200:
+                if online and segment.frames:
+                    quiet = segment.quiet*.02
+                    end_text = wake_content(hypothesis)
+                    ending = is_goodbye(end_text if end_text is not None else hypothesis)
+                    if (ending and quiet>=.6 and now-changed_at>=.25) or endpoint.ready(hypothesis, quiet, now-changed_at):
+                        completed = b''.join(segment.frames)
+                if not online and maybe_end and segment.frames and segment.quiet >= 28 and len(segment.frames) < 200:
                     # Confirm the short intent with ASR: discussing "再见这首歌" must not exit.
                     maybe_end = False
                     early = array.array('h', b''.join(segment.frames))
@@ -330,8 +382,8 @@ def main():
                 publish('recognizing','正在识别完整语句…','thinking')
                 samples = array.array('h', completed)
                 started=time.monotonic()
-                text = engine.recognize([x/32768 for x in samples],16000)
-                print(json.dumps({'stage':'asr','seconds':round(time.monotonic()-started,2),'audio_seconds':len(samples)/16000}),flush=True)
+                text = online.finish() if online else engine.recognize([x/32768 for x in samples],16000)
+                print(json.dumps({'stage':'asr','mode':'online' if online else 'offline','seconds':round(time.monotonic()-started,2),'audio_seconds':len(samples)/16000}),flush=True)
                 content = wake_content(text)
                 if content is not None:
                     text = content

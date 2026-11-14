@@ -322,34 +322,74 @@ so there is no spoken-acknowledgement deaf interval. The dedicated local Zipform
 keyword spotter replaces full SenseVoice decoding for idle wake detection.
 A 45-second idle window opens after wake/answer. Once speech starts it stays latched
 until endpointing, independent of that idle window and recognition latency.
-Endpointing uses 300ms pre-roll, 1.8s silence tolerance and a 60s safety cap, replacing
-the former 0.8s/12s cutoffs. Tune silence with `ENMOTION_END_SILENCE` if necessary.
+The default listener now uses the bilingual small streaming Zipformer ASR model.
+Install it with `bash scripts/install_online_asr.sh` before restarting the listener.
+Partial text appears while speaking. Text-aware endpointing waits 700ms for clear
+questions, 1.3s for ordinary phrases, 2.2s for short/unfinished phrases and 4s after
+explicit hesitation. Text must be stable for 250ms. Empty hypotheses retain a 5s
+energy endpoint; utterances have a 60s safety cap. These are heuristics, so a long
+pause after a complete question may still end the turn. For rollback, set
+`ENMOTION_STREAMING_ASR=0` in a service override: SenseVoice then uses the original
+300ms pre-roll and `ENMOTION_END_SILENCE` (default 1.8s).
 “停止对话” returns to waiting for the wake phrase.
 Plain “再见”, “拜拜”, “不聊了”, “先这样”, and addressed variants are now local
 end-session intents as well. Matching is anchored, so asking about a song called
 “再见” or saying “不要说再见” does not end the session. In listening mode, a
-dedicated short-command KWS stream can request an early check after 560ms silence;
-ASR must confirm an exact goodbye before ending. Rejected candidates retain the
-utterance buffer and ordinary 1.8s endpointing continues. The regular ASR path also
+streaming ASR hypothesis permits an early goodbye endpoint after 600ms silence.
+The final hypothesis must still match an exact goodbye before ending. In the
+offline rollback path, a dedicated short-command KWS requests an early SenseVoice
+check after 560ms silence. Rejected candidates retain the utterance buffer. ASR also
 recognizes these intents if KWS misses them. Goodbye, presence and identity replies
 are synthesized once into a persistent local clip cache at startup, removing LLM
 and per-request TTS from those hot paths. This is not millisecond end-to-end speech
 understanding: endpointing/ASR remain, and open chat still takes seconds.
 Physical acceptance: user confirmed plain “再见” exits and returns to waiting.
-SenseVoice still decodes complete questions, and Qwen/TTS still add response latency.
+Qwen/TTS still add response latency. Open conversation remains seconds, not a
+guaranteed millisecond response.
 Captions hide reply text during synthesis and appear at estimated audio onset;
 100ms status polling and a low-latency PulseAudio stream reduce the previous gap.
 This is not forced word alignment or a measured sample-exact speaker timestamp.
 Speech playback pauses and
 reopens capture to avoid self-triggering; speaking cannot currently be interrupted
 by voice. Microphone utterances stay in memory, and long-term companion memories
-are disabled for this path. Generated speech follows the existing audio-file
-retention behavior. Listener status is in runtime/listener.json and /api/listener;
+are disabled for this path. The default response pipeline uses `/api/speech/pcm`:
+VITS callback samples are transported as bounded NDJSON/base64 20ms PCM packets,
+then paced through one continuous `pacat` stream across reply sentences. Playback
+starts before synthesis completes. The native VITS callback still produces batches;
+20ms packets do not imply the neural model generates one frame every 20ms. Captions
+use the estimated 60ms output-buffer delay, not word-level forced alignment.
+Set `ENMOTION_PCM_STREAM=0` to restore sentence WAV playback. Browser/file speech
+and cached control clips still use WAV and the existing retention behavior.
+Listener status is in runtime/listener.json and /api/listener;
 the face page polls it for captions, emotions and playback RMS mouth motion.
 Revised physical acceptance: two wake detections in the user's recorded test
 (2.38s and 10.54s within that clip); user subsequently confirmed live wake,
 complete utterances and improved audio/caption synchronization. These are not
 speaker-independent accuracy or sample-exact AV latency benchmarks.
+
+### Local workstation companionship
+
+Open `/care` (also linked from the face page) to configure reminders. Defaults are
+water every **45 minutes**, workstation break every **60 minutes**, and a welcome
+after stable face-backed presence. Settings persist in `runtime/wellness-config.json`;
+elapsed counters, pending jobs and recent history reset when the runtime restarts.
+The vision observer updates timers once per second. Time accumulates only with
+fresh camera presence backed by a recent face detection. This measures presence,
+not sitting posture, identity, drinking, or medical state. After two minutes away,
+timers reset; welcomes have a ten-minute cooldown and do not repeat on short gaps.
+
+The idle listener claims a reminder only when there is no active voice session,
+no server speech/dialogue operation, and at least 800ms of quiet microphone input.
+It closes capture while playing a cached local clip, acknowledges successful
+playback, then resumes wake detection. No Qwen request is used for reminders.
+Jobs are deduplicated by kind and leased for retry; an in-process delivered-ID set
+prevents replay if acknowledgement temporarily fails. A process crash between
+playback and acknowledgement can still cause a retry. Camera failure pauses
+counting. No camera frames or microphone recordings are saved by these rules.
+
+Measured transport checks and limits for the streaming update are recorded in
+`docs/streaming-care-2026-11-14.json`. Hardware output drained successfully using
+silent PCM; physical conversation and welcome acceptance remain separate checks.
 
 The assistant's default persona is 小蓝: a calm, concise, courteous Chinese personal
 assistant with restrained wit inspired by JARVIS. It retains its own identity,

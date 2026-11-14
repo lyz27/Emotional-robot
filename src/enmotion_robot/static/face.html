@@ -6,7 +6,7 @@
 </style>
 <canvas id="scene" aria-label="机器人的动态表情"></canvas><header><b>✦ XIAOLAN / PERSONAL ASSISTANT</b><span id="status">系统连接中</span></header>
 <section class="caption"><p id="line">小蓝在线。随时待命。</p><div id="sub">LOCAL INTELLIGENCE · VOICE INTERFACE</div></section>
-<nav><button id="talk">和我说说</button><button id="settings">表情剧场</button><button id="full" aria-label="全屏">⛶</button></nav>
+<nav><button id="talk">和我说说</button><button id="settings">表情剧场</button><button onclick="location.href='/care'">陪伴设置</button><button id="full" aria-label="全屏">⛶</button></nav>
 <dialog id="panel"><button id="close">关闭</button><h2>在这里，听你说。</h2><form id="chat"><input id="text" maxlength="1200" placeholder="今天有什么想分享的？" aria-label="对机器人说话" required><button id="send">发送</button></form><div id="moods"></div><small>点击脸颊会有回应。表情剧场仅在本屏预览，不驱动电机。<br>语音播放时按实际音量带动嘴形；文字回复不会假装正在说话。</small></dialog>
 <audio id="voice"></audio>
 <script>

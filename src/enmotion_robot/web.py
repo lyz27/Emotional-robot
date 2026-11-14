@@ -22,6 +22,7 @@ from .speech import SpeechCoordinator, SpeechError, WavBytesSource
 from .work import WorkSpace
 from .folder_sync import import_note, heartbeat
 from .vision import Orchestrator, VisionService
+from .wellness import WellnessRules
 
 
 LOG = logging.getLogger("enmotion.web")
@@ -43,6 +44,7 @@ def create_app(
     mind = companion or CompanionCore()
     work = workspace or WorkSpace()
     orchestration = Orchestrator(robot)
+    wellness = WellnessRules(STATIC_DIR.parents[2] / 'runtime/wellness-config.json')
     dialogue_activity = {"count": 0}
     # Prevent simultaneous requests for different resident models on this 8GB board.
     # TTS is deliberately outside this lock, so synthesis overlaps generation.
@@ -82,11 +84,19 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        care_stop = threading.Event()
+        def care_tick():
+            while not care_stop.wait(1):
+                wellness.update(orchestration.snapshot())
+        care_thread = threading.Thread(target=care_tick,daemon=True,name='wellness-rules')
         if manage_supervisor:
             runtime.start()
             vision.start()
+            care_thread.start()
         yield
         if manage_supervisor:
+            care_stop.set()
+            care_thread.join(timeout=2)
             vision.stop()
             runtime.stop()
 
@@ -96,6 +106,7 @@ def create_app(
     app.state.speech = voice
     app.state.companion = mind
     app.state.orchestration = orchestration
+    app.state.wellness = wellness
     companion_control = {"active": False, "emotion": "calm"}
 
     def apply_companion_action(result: dict) -> None:
@@ -139,6 +150,36 @@ def create_app(
     @app.get("/api/vision")
     def vision_status():
         return orchestration.snapshot()
+
+    @app.get('/care', include_in_schema=False)
+    def care_page():
+        return FileResponse(STATIC_DIR / 'care.html', headers={'Cache-Control':'no-store'})
+
+    @app.get('/api/wellness')
+    def care_status():
+        wellness.update(orchestration.snapshot())
+        return wellness.snapshot()
+
+    @app.patch('/api/wellness')
+    def care_config(payload: dict = Body(...)):
+        try:
+            return wellness.configure(payload)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.post('/api/wellness/claim')
+    def care_claim(request: Request):
+        if request.client.host not in {'127.0.0.1','::1','testclient'}:
+            raise HTTPException(403, '仅允许本机语音服务领取提醒')
+        wellness.update(orchestration.snapshot())
+        free = read_listener().get('phase') == 'waiting' and not voice.status().get('processing', False) and dialogue_activity['count'] == 0
+        return {'job':wellness.claim(free)}
+
+    @app.post('/api/wellness/ack')
+    def care_ack(request: Request, payload: dict = Body(...)):
+        if request.client.host not in {'127.0.0.1','::1','testclient'}:
+            raise HTTPException(403, '仅允许本机语音服务确认提醒')
+        return {'ok':wellness.acknowledge(payload.get('id'))}
 
     @app.post("/api/vision/touch")
     def screen_touch():
@@ -466,6 +507,55 @@ def create_app(
             return voice.synthesize_text(str(payload.get("text", "")))
         except SpeechError as exc:
             raise HTTPException(status_code=422, detail={"code": exc.code, "message": str(exc)}) from exc
+
+    @app.post("/api/speech/pcm")
+    def stream_pcm(payload: dict = Body(...)):
+        import base64
+        import json
+        import queue
+        text = payload.get("text")
+        if not isinstance(text, str) or not 1 <= len(text.strip()) <= 500:
+            raise HTTPException(422, "请输入 1–500 字符")
+        packets = queue.Queue(maxsize=12)
+        cancelled = threading.Event()
+        def send(packet):
+            while not cancelled.is_set():
+                try:
+                    packets.put(packet, timeout=.2)
+                    return True
+                except queue.Full:
+                    pass
+            return False
+        def generate():
+            try:
+                with voice._process_lock:
+                    import numpy as np
+                    tts = voice.engine._get_tts()
+                    rate = tts.sample_rate
+                    send({"type":"audio","sample_rate":rate,"format":"s16le","channels":1})
+                    def audio(samples, progress):
+                        pcm = (np.clip(samples,-1,1)*32767).astype('<i2').tobytes()
+                        size = max(2, round(rate*.02)*2)
+                        for offset in range(0,len(pcm),size):
+                            if not send({"type":"pcm","data":base64.b64encode(pcm[offset:offset+size]).decode()}):
+                                return 0
+                        return 1
+                    voice.engine.synthesize_chunks(text, audio)
+                send({"type":"done"})
+            except Exception:
+                send({"type":"error","message":"音频生成中断"})
+            finally:
+                send(None)
+        def body():
+            threading.Thread(target=generate,daemon=True).start()
+            try:
+                while True:
+                    packet=packets.get()
+                    if packet is None: return
+                    yield json.dumps(packet,ensure_ascii=False)+'\n'
+            finally:
+                cancelled.set()
+        return StreamingResponse(body(), media_type="application/x-ndjson",headers={"Cache-Control":"no-store","X-Accel-Buffering":"no"})
 
     @app.post("/api/speech/interrupt")
     def interrupt_speech() -> dict:

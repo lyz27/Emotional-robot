@@ -261,6 +261,15 @@ class OfflineSpeechEngine:
         sherpa_onnx.write_wave(str(output), audio.samples, audio.sample_rate)
         return round(len(audio.samples) / audio.sample_rate, 3)
 
+    def synthesize_chunks(self, text, on_samples):
+        sherpa_onnx, _ = self._runtime()
+        tts = self._get_tts()
+        config = sherpa_onnx.GenerationConfig()
+        config.sid = 2
+        config.speed = 1.0
+        config.silence_scale = .2
+        return tts.generate(text, config, on_samples)
+
 
 def _energy_vad(samples: list[float], sample_rate: int) -> list[float]:
     """Deterministic fallback used until the Silero model is installed."""

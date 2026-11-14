@@ -1,0 +1,40 @@
+{
+  "device": "Jetson Orin Nano Super 8GB; UGREEN CM797",
+  "asr": {
+    "model": "sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16",
+    "archive_sha256": "2b7c63322b32e5e0f2526043a1103366119ca58dd615cd7105a37c01db9553d7",
+    "private_existing_clip_audio_seconds": 19.9956,
+    "unpaced_compute_seconds": 2.0971,
+    "live_partials_observed": true,
+    "limitations": "Small single-speaker fixture, not a recognition accuracy benchmark. 小蓝 produced phonetic substitutions. Independent KWS remains responsible for wake detection.",
+    "cached_goodbye_fixture_final": "再见",
+    "cached_goodbye_fixture_compute_seconds": 0.241
+  },
+  "tts_transport": {
+    "text": "您好，请说。我会认真听。",
+    "cold_first_pcm_seconds": 2.6954,
+    "cold_complete_seconds": 4.5493,
+    "warm_first_pcm_seconds": 0.4241,
+    "warm_complete_seconds": 2.3602,
+    "format": "16kHz mono signed PCM16LE; 20ms transport packets",
+    "limits": "Native VITS callback emits batches. First PCM timing excludes endpointing, ASR, LLM and physical speaker output."
+  },
+  "llm_plus_tts_first_pcm_probe": [
+    {"question": "我今天有点累，简单说两句。", "first_pcm_seconds": 1.475, "sentences": 2},
+    {"question": "准备一个明天演示的方案，简短说出两步。", "first_pcm_seconds": 3.269, "sentences": 2}
+  ],
+  "playback": {
+    "continuous_pacat_silent_pcm_drain_passed": true,
+    "captions": "Estimated output-buffer onset; not forced alignment or measured speaker timestamp",
+    "physical_acceptance": "Awaiting user conversation and arrival test"
+  },
+  "wellness": {
+    "water_minutes": 45,
+    "break_minutes": 60,
+    "welcome_stable_presence_seconds": 2,
+    "absence_reset_seconds": 120,
+    "welcome_cooldown_seconds": 600,
+    "validation": "Fake-clock tests cover thresholds, departure, cooldown, settings persistence, leases and busy-session deferral; deployed API and settings UI verified.",
+    "limits": "Presence-based; does not infer sitting posture or identify a person. Timers reset on runtime restart."
+  }
+}

@@ -38,6 +38,7 @@ def test_stream_uses_safety_and_no_duplicate_fallback(tmp_path):
 
 
 def test_tts_is_prefetched_while_first_sentence_plays(monkeypatch):
+    monkeypatch.setenv('ENMOTION_PCM_STREAM','0')
     import enmotion_robot.listener as listener
     second_ready = threading.Event()
     played = []
