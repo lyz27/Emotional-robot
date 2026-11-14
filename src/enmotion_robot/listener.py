@@ -111,9 +111,9 @@ def main():
                 if content is not None:
                     text = content
                 if not text.strip():
-                    speak("我在，请说。", "curious")
+                    speak("我在，随时待命。", "calm")
                 elif any(word in text for word in ("停止对话", "再见小蓝", "再见小兰")):
-                    speak("好的，需要我时再叫我。")
+                    speak("收到。本轮对话结束，需要时再叫我。")
                     active_until = 0
                     break
                 else:

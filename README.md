@@ -233,7 +233,7 @@ enmotion-listener` after copying `deploy/enmotion-listener.service` into
 `~/.config/systemd/user/`. Stop listening with `systemctl --user stop
 enmotion-listener`. It follows the desktop login and does not require root.
 
-Say “嘿，小蓝”, pause, and wait for “我在，请说”. A 20-second continuation window
+Say “嘿，小蓝”, pause, and wait for “我在，随时待命”. A 20-second continuation window
 opens after each answer; “停止对话” returns to waiting for the wake phrase.
 The current implementation uses local utterance energy segmentation and SenseVoice
 recognition (including 小兰 homophones), not a dedicated streaming keyword model.
@@ -244,6 +244,13 @@ are disabled for this path. Generated speech follows the existing audio-file
 retention behavior. Listener status is in runtime/listener.json and /api/listener;
 the face page polls it for captions, emotions and playback RMS mouth motion.
 Physical acceptance: user confirmed wake acknowledgement and live conversation.
+
+The assistant's default persona is 小蓝: a calm, concise, courteous Chinese personal
+assistant with restrained wit inspired by JARVIS. It retains its own identity,
+avoids invented execution results and live weather/device facts, and keeps empathy
+in serious conversations. The face includes restrained cyan instrument rings,
+not fabricated sensor readings. TTS uses the existing local voice at speed 1.0;
+this is not a recreation of the movie actor's voice. Output remains at 80%.
 
 UGREEN CM797 hardware acceptance: USB camera takes a 1280×720 MJPEG frame;
 `UGREEN Camera Audio` exposes both capture and playback, independently of HDMI.

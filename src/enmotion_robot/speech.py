@@ -252,7 +252,7 @@ class OfflineSpeechEngine:
         tts = self._get_tts()
         generation = sherpa_onnx.GenerationConfig()
         generation.sid = 2
-        generation.speed = 1.05
+        generation.speed = 1.0
         generation.silence_scale = 0.2
         audio = tts.generate(text, generation)
         if len(audio.samples) == 0:
