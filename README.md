@@ -271,17 +271,29 @@ enmotion-listener` after copying `deploy/enmotion-listener.service` into
 `~/.config/systemd/user/`. Stop listening with `systemctl --user stop
 enmotion-listener`. It follows the desktop login and does not require root.
 
-Say “嘿，小蓝”, pause, and wait for “我在，随时待命”. A 20-second continuation window
-opens after each answer; “停止对话” returns to waiting for the wake phrase.
-The current implementation uses local utterance energy segmentation and SenseVoice
-recognition (including 小兰 homophones), not a dedicated streaming keyword model.
-Expect recognition latency after finishing the phrase. Speech playback pauses and
+Install the checked streaming keyword model with `bash scripts/install_wake.sh`.
+Say “嘿，小蓝” (or “小蓝”); a short earcon acknowledges it while capture stays open,
+so there is no spoken-acknowledgement deaf interval. The dedicated local Zipformer
+keyword spotter replaces full SenseVoice decoding for idle wake detection.
+A 45-second idle window opens after wake/answer. Once speech starts it stays latched
+until endpointing, independent of that idle window and recognition latency.
+Endpointing uses 300ms pre-roll, 1.8s silence tolerance and a 60s safety cap, replacing
+the former 0.8s/12s cutoffs. Tune silence with `ENMOTION_END_SILENCE` if necessary.
+“停止对话” returns to waiting for the wake phrase.
+SenseVoice still decodes complete questions, and Qwen/TTS still add response latency.
+Captions hide reply text during synthesis and appear at estimated audio onset;
+100ms status polling and a low-latency PulseAudio stream reduce the previous gap.
+This is not forced word alignment or a measured sample-exact speaker timestamp.
+Speech playback pauses and
 reopens capture to avoid self-triggering; speaking cannot currently be interrupted
 by voice. Microphone utterances stay in memory, and long-term companion memories
 are disabled for this path. Generated speech follows the existing audio-file
 retention behavior. Listener status is in runtime/listener.json and /api/listener;
 the face page polls it for captions, emotions and playback RMS mouth motion.
-Physical acceptance: user confirmed wake acknowledgement and live conversation.
+Revised physical acceptance: two wake detections in the user's recorded test
+(2.38s and 10.54s within that clip); user subsequently confirmed live wake,
+complete utterances and improved audio/caption synchronization. These are not
+speaker-independent accuracy or sample-exact AV latency benchmarks.
 
 The assistant's default persona is 小蓝: a calm, concise, courteous Chinese personal
 assistant with restrained wit inspired by JARVIS. It retains its own identity,
