@@ -24,7 +24,7 @@ function draw(ms){requestAnimationFrame(draw);if(document.hidden){lastTime=ms;re
  const t=clock,desired=moods[mood];for(const k of ['h','eye','smile','brow','tilt'])spring(k,desired[k],dt);
  const follow=performance.now()<pointer.until?pointer:targetGaze;spring('x',follow.x,dt);spring('y',follow.y,dt);spring('pop',0,dt);
  if(t>blinkAt){blinkStart=t;blinkAt=t+2.8+Math.random()*4}const b=Math.max(0,1-Math.abs((t-blinkStart-.085)/.085));const open=Math.max(.055,state.eye*(1-b));
- if(analyser&&!$('voice').paused){analyser.getByteTimeDomainData(bins);let sum=0;for(const v of bins)sum+=((v-128)/128)**2;energy+=(Math.min(1,Math.sqrt(sum/bins.length)*5)-energy)*.4}else energy*=.8;
+ if(analyser&&!$('voice').paused){analyser.getByteTimeDomainData(bins);let sum=0;for(const v of bins)sum+=((v-128)/128)**2;energy+=(Math.min(1,Math.sqrt(sum/bins.length)*5)-energy)*.4}else if(listener.phase==='speaking'){energy+=((listener.amplitude||0)-energy)*.4}else energy*=.8;
  const w=canvas.width,h=canvas.height;ctx.fillStyle='#050b14';ctx.fillRect(0,0,w,h);const s=Math.min(w/1000,h/690);ctx.save();ctx.translate(w/2,h*.43);ctx.scale(s,s);
  const hue=state.h;glow(0,20,430,`hsla(${hue},75%,50%,.085)`);glow(-210,-100,250,'#7d8df00a');
  // Distant orbital dust: deterministic motion, no DOM allocations per frame.
@@ -60,5 +60,6 @@ $('voice').onended=()=>{presenting=false;previewUntil=performance.now()+3500};$(
 for(const [name,m]of Object.entries(moods)){const b=document.createElement('button');b.textContent=m.label;b.onclick=()=>{setMood(name,true);$('line').textContent={calm:'慢慢来，我陪着你。',happy:'见到你，心情都亮起来了。',curious:'然后呢？我想听听。',sleepy:'今天辛苦了，休息一下吧。',worried:'没关系，我们一起慢慢理清。',thinking:'给我一点时间，让想法连起来。'}[name];$('panel').close()};$('moods').append(b)}
 $('talk').onclick=()=>{$('panel').showModal();$('text').focus()};$('settings').onclick=()=>$('panel').showModal();$('close').onclick=()=>$('panel').close();$('full').onclick=()=>{if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(()=>{});else document.exitFullscreen()};
 refresh();setInterval(refresh,1200);
+let listener={phase:'offline'},listenerPending=false;async function refreshListener(){if(listenerPending)return;listenerPending=true;try{listener=await json('/api/listener');if(listener.phase!=='offline'&&!busy&&!presenting){const phase=listener.phase;setMood(phase==='thinking'||phase==='recognizing'?'thinking':phase==='listening'?'curious':listener.emotion||'calm',true);$('line').textContent=listener.text||'说“嘿，小蓝”唤醒我';$('status').textContent={waiting:'等待唤醒',listening:'我在听',recognizing:'正在识别',thinking:'正在思考',speaking:'正在回答',error:'语音重连中'}[phase]||phase;$('sub').textContent='本地语音 · 回答结束后可继续说 · 说“停止对话”结束'}}catch(e){}finally{listenerPending=false}}setInterval(refreshListener,400);
 let sampleFrame=0,sampleTime=performance.now();setInterval(()=>{const now=performance.now(),fps=(frame-sampleFrame)*1000/(now-sampleTime);sampleFrame=frame;sampleTime=now;if(!document.hidden)json('/api/display',{fps:Math.round(fps*10)/10,width:innerWidth,height:innerHeight}).catch(()=>{})},10000);
 </script></html>

@@ -90,6 +90,18 @@ def create_app(
     def display_status():
         return display_metrics
 
+    @app.get("/api/listener")
+    def listener_status():
+        import json
+        import time
+        try:
+            state = json.loads((STATIC_DIR.parents[2] / "runtime/listener.json").read_text())
+            if time.time() - state["at"] < (150 if state.get("phase") in {"thinking", "recognizing"} else 15):
+                return state
+        except (OSError, ValueError, KeyError):
+            pass
+        return {"phase": "offline"}
+
     @app.post("/api/display")
     def display_heartbeat(request: Request, payload: dict = Body(...)):
         if request.client.host not in {"127.0.0.1", "::1"}:

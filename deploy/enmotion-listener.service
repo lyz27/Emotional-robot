@@ -1,0 +1,14 @@
+[Unit]
+Description=Enmotion local wake and conversation listener
+After=pulseaudio.service
+
+[Service]
+WorkingDirectory=/home/lyz/enmotion_robot
+ExecStartPre=/home/lyz/.local/bin/enmotion-ugreen
+ExecStart=/home/lyz/enmotion_robot/.venv/bin/python -m enmotion_robot.listener
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

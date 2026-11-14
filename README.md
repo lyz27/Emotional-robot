@@ -225,6 +225,26 @@ disposable database and never modifies the user's tasks or notes.
 
 ## Robot screen
 
+### Local wake conversation
+
+`enmotion-listener.service` is a desktop user service that captures the UGREEN
+microphone with PulseAudio. Enable it with `systemctl --user enable --now
+enmotion-listener` after copying `deploy/enmotion-listener.service` into
+`~/.config/systemd/user/`. Stop listening with `systemctl --user stop
+enmotion-listener`. It follows the desktop login and does not require root.
+
+Say “嘿，小蓝”, pause, and wait for “我在，请说”. A 20-second continuation window
+opens after each answer; “停止对话” returns to waiting for the wake phrase.
+The current implementation uses local utterance energy segmentation and SenseVoice
+recognition (including 小兰 homophones), not a dedicated streaming keyword model.
+Expect recognition latency after finishing the phrase. Speech playback pauses and
+reopens capture to avoid self-triggering; speaking cannot currently be interrupted
+by voice. Microphone utterances stay in memory, and long-term companion memories
+are disabled for this path. Generated speech follows the existing audio-file
+retention behavior. Listener status is in runtime/listener.json and /api/listener;
+the face page polls it for captions, emotions and playback RMS mouth motion.
+Physical acceptance: user confirmed wake acknowledgement and live conversation.
+
 UGREEN CM797 hardware acceptance: USB camera takes a 1280×720 MJPEG frame;
 `UGREEN Camera Audio` exposes both capture and playback, independently of HDMI.
 Run `bash deploy/configure-ugreen.sh --install` as the desktop user to retain the
