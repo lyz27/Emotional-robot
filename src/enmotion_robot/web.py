@@ -24,6 +24,7 @@ from .folder_sync import import_note, heartbeat
 from .vision import Orchestrator, VisionService
 from .wellness import WellnessRules
 from .assistant import Assistant
+from .network import Network
 
 
 LOG = logging.getLogger("enmotion.web")
@@ -45,6 +46,7 @@ def create_app(
     mind = companion or CompanionCore()
     work = workspace or WorkSpace()
     assistant = Assistant(work)
+    network = Network()
     orchestration = Orchestrator(robot)
     wellness = WellnessRules(STATIC_DIR.parents[2] / 'runtime/wellness-config.json')
     dialogue_activity = {"count": 0}
@@ -62,6 +64,10 @@ def create_app(
         if not mind.safety.inspect(text)['store_allowed']:
             result=ask_companion(text,remember=False)
             return {'reply':result['reply'],'fallback':False,'mode':mode}
+        if mode=='chat' and network.wants(text,'work'):
+            result=network.run(text,'work')
+            work.history.add_exchange('work',text,result['reply'])
+            return {'reply':result['reply'],'search':result,'fallback':not result.get('ok',True),'mode':mode}
         if mode=='chat' and mind.safety.inspect(text)['store_allowed']:
             direct=assistant.handle(text,'work',kwargs.get('request_id') or (args[2] if len(args)>2 else None))
             if direct:return {**direct,'fallback':False,'mode':mode}
@@ -71,7 +77,10 @@ def create_app(
     def ask_assistant(text,session_id='voice',remember=True,perception=None,on_sentence=None,request_id=None):
         safe=mind.safety.inspect(text)
         if safe['store_allowed'] and not safe['response']:
-            direct=assistant.handle(text,session_id,request_id)
+            if network.wants(text,session_id):
+                found=network.run(text,session_id)
+                direct={'reply':found['reply'],'search':found,'source':'internet'}
+            else:direct=assistant.handle(text,session_id,request_id)
             if direct is None:
                 import re
                 if re.search(r'拆解|复盘|(?:整理|修改|更新).*(?:笔记|备忘)|保存|记录|记下来|记一下|提醒我|创建.*待办|修改.*(?:任务|事项|待办)|完成.*(?:任务|事项|待办)',text) and not re.search(r'不要|别帮|不用|不需要|先不|不想|假如|假设|举个例|比如|如果',text):
@@ -82,7 +91,7 @@ def create_app(
                 if remember:mind.store.add_exchange(session_id,text,direct['reply'])
                 mind.emotion.set_from_model('calm',.35)
                 return {'ok':True,'reply':direct['reply'],'action':mind.current_action(),
-                        'assistant':direct,'remembered':remember,'session_id':session_id}
+                        'assistant':direct,'search':direct.get('search'),'remembered':remember,'session_id':session_id}
         return ask_companion(text,session_id=session_id,remember=remember,perception=perception,
                              on_sentence=on_sentence,work_context=assistant.context(text) if safe['store_allowed'] else None)
 
@@ -136,6 +145,7 @@ def create_app(
     app.state.orchestration = orchestration
     app.state.wellness = wellness
     app.state.assistant = assistant
+    app.state.network = network
     companion_control = {"active": False, "emotion": "calm"}
 
     def apply_companion_action(result: dict) -> None:
@@ -183,6 +193,22 @@ def create_app(
     @app.get('/care', include_in_schema=False)
     def care_page():
         return FileResponse(STATIC_DIR / 'care.html', headers={'Cache-Control':'no-store'})
+
+    @app.get('/search', include_in_schema=False)
+    def search_page():
+        return FileResponse(STATIC_DIR/'search.html',headers={'Cache-Control':'no-store'})
+
+    @app.get('/api/search/status')
+    def search_status():return network.status()
+
+    @app.post('/api/search')
+    def online_search(payload: dict = Body(...)):
+        text=payload.get('text')
+        if not isinstance(text,str) or not 1<=len(text.strip())<=300:raise HTTPException(422,'请输入1～300个字符的查询内容')
+        safe=mind.safety.inspect(text)
+        if not safe['store_allowed']:
+            return {'ok':False,'reply':safe['response'] or '这条内容涉及隐私，没有发送到搜索服务。','sources':[]}
+        return network.run(text,'browser-search')
 
     @app.get('/api/wellness')
     def care_status():
@@ -423,6 +449,8 @@ def create_app(
                 emitted.append(part)
                 send({"type": "sentence", "text": part, "emotion": "calm"})
             try:
+                if network.wants(text,'voice') and mind.safety.inspect(text)['store_allowed']:
+                    send({'type':'status','text':'正在联网查询…'})
                 result = ask_assistant(text, session_id="voice", remember=True,request_id=payload.get('request_id'),
                                    perception=perception_context(), on_sentence=sentence)
                 if not emitted:
@@ -433,7 +461,7 @@ def create_app(
                             send({'type':'sentence','text':phrase[offset:offset+200],'emotion':result['action']['emotion']})
                 elif ''.join(emitted).strip() != result["reply"]:
                     send({"type": "error", "message": "后续回复未完整生成，请再试一次。"})
-                send({"type": "done", "emotion": result["action"]["emotion"]})
+                send({"type": "done", "emotion": result["action"]["emotion"], 'search':result.get('search')})
             except Exception:
                 if not cancelled.is_set():
                     send({"type": "error", "message": "回复生成失败，请再试一次。"})

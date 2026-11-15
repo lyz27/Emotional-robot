@@ -94,6 +94,7 @@ def run(text,publish, event_source=events, output_factory=PCMOutput):
             for event in event_source('/api/companion/stream',{'text':text,'request_id':uuid.uuid4().hex}):
                 if stopped.is_set():break
                 if event['type']=='sentence':put(phrases,event['text'])
+                elif event['type']=='status':publish('thinking',event.get('text','正在查询…'),'thinking')
                 elif event['type']=='done':emotion['value']=event.get('emotion','calm')
                 elif event['type']=='error':put(phrases,event['message']);break
         except Exception:put(phrases,'回复传输中断，请再试一次。')

@@ -425,6 +425,38 @@ Old completed tasks lack completion dates, so they cannot establish when work wa
 finished. Validation is in `tests/test_assistant.py` and `docs/assistant-2026-11-14.md`.
 Runtime databases and backups remain outside Git.
 
+### Online public information
+
+Voice, face chat and work chat now route public search/weather questions through
+`network.py`, without sending private work records or conversation history.
+Say “帮我搜索 Jetson Orin Nano 官方文档”, “帮我查一下乐山大佛开放时间”, or
+“上海明天天气怎么样”. Local tasks/notes and write commands retain their local route.
+Secrets/privacy filters run before retrieval. Ordinary chat does not automatically
+send its context to an external service.
+
+`/search` shows the latest query result, retrieval time and clickable source cards.
+The face has a navigation button; work chat includes a source details panel.
+`POST /api/search` also accepts `{ "text": "..." }`; `/api/search/status` reports
+the latest result in memory. Both search results and weather use a 60-second cache,
+retaining the original fetch timestamp. Cache and weather-city context clear on
+runtime restart. The first city-free weather question asks for a city; a short
+follow-up such as “那明天呢” reuses it. No IP/GPS location is collected.
+
+General search reads public Bing RSS descriptions, not full pages. It returns up
+to three source links and explicitly labels its answer as a search snippet.
+Retrieval time and provider result time do not prove when the original page was
+published. The public RSS endpoint is not a stable contracted API and may return
+empty results or a challenge. Failures are explicit; local model guesses are never
+substituted for a failed live lookup. The robot does not follow result links,
+execute web text, log into websites, or change work records based on search content.
+
+Weather uses the documented Open-Meteo geocoding and forecast APIs, currently for
+today through three days ahead. Spoken temperatures are daily forecast minima and
+maxima, not a live station observation. Sources are attributed in the result view.
+Provider reads are capped at 160KB and use one short retry for transient network
+errors. This prototype needs no additional package, hardware or API key.
+See `docs/network-2026-11-15.md` for validation and known limits.
+
 The assistant's default persona is 小蓝: a calm, concise, courteous Chinese personal
 assistant with restrained wit inspired by JARVIS. It retains its own identity,
 avoids invented execution results and live weather/device facts, and keeps empathy
